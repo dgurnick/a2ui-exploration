@@ -15,7 +15,7 @@ class FallbackAgent : UseCase {
     override fun canHandle(prompt: String): Boolean = true
 
     override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
-        emit(buildJsonObject {
+        val data = buildJsonObject {
             put("type", "fallback")
             put("message", "Sorry, I didn\u2019t understand that.")
             putJsonArray("suggestions") {
@@ -23,6 +23,8 @@ class FallbackAgent : UseCase {
                 add(JsonPrimitive("What is my account balance?"))
                 add(JsonPrimitive("What offers do you have for me?"))
             }
-        }.toString())
+        }
+        val rcBase64 = buildRcDocument(data)
+        emit(buildJsonObject { put("rc", rcBase64) }.toString())
     }
 }

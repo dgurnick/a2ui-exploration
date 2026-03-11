@@ -15,15 +15,15 @@ class AtmFinderAgent : UseCase {
     override fun canHandle(prompt: String): Boolean {
         val p = prompt.lowercase()
         return p.contains("atm") ||
-               p.contains("cash machine") ||
-               p.contains("closest") ||
-               p.contains("nearest") ||
-               p.contains("withdraw")
+                p.contains("cash machine") ||
+                p.contains("closest") ||
+                p.contains("nearest") ||
+                p.contains("withdraw")
     }
 
     override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
         val (lat, lon) = parseLocation(prompt) ?: Pair(37.7860, -122.4071)
-        emit(buildJsonObject {
+        val data = buildJsonObject {
             put("type", "atm_list")
             put("userLat", lat)
             put("userLon", lon)
@@ -53,7 +53,9 @@ class AtmFinderAgent : UseCase {
                     put("openStatus", "Open 24/7")
                 }
             }
-        }.toString())
+        }
+        val rcBase64 = buildRcDocument(data)
+        emit(buildJsonObject { put("rc", rcBase64) }.toString())
     }
 
     private fun parseLocation(prompt: String): Pair<Double, Double>? {

@@ -15,15 +15,15 @@ class BankOffersAgent : UseCase {
     override fun canHandle(prompt: String): Boolean {
         val p = prompt.lowercase()
         return p.contains("offer") ||
-               p.contains("deal") ||
-               p.contains("promotion") ||
-               p.contains("promo") ||
-               p.contains("rate") ||
-               p.contains("loan")
+                p.contains("deal") ||
+                p.contains("promotion") ||
+                p.contains("promo") ||
+                p.contains("rate") ||
+                p.contains("loan")
     }
 
     override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
-        emit(buildJsonObject {
+        val data = buildJsonObject {
             put("type", "offers")
             putJsonArray("offers") {
                 addJsonObject {
@@ -42,7 +42,7 @@ class BankOffersAgent : UseCase {
                     put("title", "Home Equity Line")
                     put("rate", "6.75%")
                     put("tag", "Flexible")
-                    put("description", "variable APR, up to $500k")
+                    put("description", "variable APR, up to \$500k")
                 }
                 addJsonObject {
                     put("title", "Personal Loan")
@@ -51,6 +51,8 @@ class BankOffersAgent : UseCase {
                     put("description", "funds in as little as 1 day")
                 }
             }
-        }.toString())
+        }
+        val rcBase64 = buildRcDocument(data)
+        emit(buildJsonObject { put("rc", rcBase64) }.toString())
     }
 }

@@ -61,8 +61,8 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
 
-    implementation(libs.rc.creation.android)
-    implementation(libs.rc.creation.compose)
+    implementation(libs.rc.core)
+    implementation(libs.rc.core)
     implementation(libs.rc.player.core)
     implementation(libs.rc.player.view)
 

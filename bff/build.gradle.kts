@@ -1,6 +1,6 @@
 plugins {
-    kotlin("jvm") version "1.9.24"
-    kotlin("plugin.serialization") version "1.9.24"
+    kotlin("jvm") version "2.1.20"
+    kotlin("plugin.serialization") version "2.1.20"
     id("io.ktor.plugin") version "2.3.11"
     application
 }
@@ -14,6 +14,7 @@ application {
 
 repositories {
     mavenCentral()
+    google()
 }
 
 val ktorVersion = "2.3.11"
@@ -38,6 +39,10 @@ dependencies {
 
     // kotlinx.serialization – used in model classes & agent code
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion")
+
+    // Remote Compose – server-side document creation (pure JVM JARs, no Android)
+    implementation("androidx.compose.remote:remote-creation-core:1.0.0-alpha06")
+    implementation("androidx.compose.remote:remote-core:1.0.0-alpha06")
 
     implementation("ch.qos.logback:logback-classic:$logbackVersion")
 

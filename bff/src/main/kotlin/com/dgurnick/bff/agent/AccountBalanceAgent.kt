@@ -14,35 +14,39 @@ class AccountBalanceAgent : UseCase {
 
     override fun canHandle(prompt: String): Boolean {
         val p = prompt.lowercase()
-        return p.contains("balance") || p.contains("account") ||
-               p.contains("statement") || p.contains("transaction")
+        return p.contains("balance") ||
+                p.contains("account") ||
+                p.contains("statement") ||
+                p.contains("transaction")
     }
 
     override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
-        emit(buildJsonObject {
+        val data = buildJsonObject {
             put("type", "account_balance")
             put("greeting", "Good morning, Alex")
             putJsonArray("accounts") {
                 addJsonObject {
                     put("name", "Everyday Checking")
                     put("number", "\u2022\u2022\u2022\u20224821")
-                    put("balance", "$3,240.55")
-                    put("available", "$3,190.55")
+                    put("balance", "\$3,240.55")
+                    put("available", "\$3,190.55")
                 }
                 addJsonObject {
                     put("name", "High-Yield Savings")
                     put("number", "\u2022\u2022\u2022\u20229037")
-                    put("balance", "$41,109.62")
-                    put("available", "$41,109.62")
+                    put("balance", "\$41,109.62")
+                    put("available", "\$41,109.62")
                 }
                 addJsonObject {
                     put("name", "Freedom Credit Card")
                     put("number", "\u2022\u2022\u2022\u20225521")
-                    put("balance", "-$897.14")
-                    put("available", "$9,102.86")
+                    put("balance", "-\$897.14")
+                    put("available", "\$9,102.86")
                 }
             }
-            put("netWorth", "$43,453.03")
-        }.toString())
+            put("netWorth", "\$43,453.03")
+        }
+        val rcBase64 = buildRcDocument(data)
+        emit(buildJsonObject { put("rc", rcBase64) }.toString())
     }
 }
