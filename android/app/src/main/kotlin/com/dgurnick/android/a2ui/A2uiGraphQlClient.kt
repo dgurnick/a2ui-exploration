@@ -1,21 +1,24 @@
 package com.dgurnick.android.a2ui
 
 import android.util.Log
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "A2UI.GraphQlClient"
-private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
+private val jsonParser = Json {
+    ignoreUnknownKeys = true
+    isLenient = true
+}
 
 /** Sealed result emitted by [A2uiGraphQlClient.subscribe]. */
 sealed class A2uiStreamEvent {
@@ -30,7 +33,8 @@ sealed class A2uiStreamEvent {
 /**
  * Communicates with the BFF via GraphQL.
  *
- * - Subscriptions: WebSocket using the [graphql-ws protocol](https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md)
+ * - Subscriptions: WebSocket using the
+ * [graphql-ws protocol](https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md)
  * - Mutations / Queries: plain HTTP POST to `/graphql`
  */
 class A2uiGraphQlClient(private val baseUrl: String) {
@@ -39,16 +43,16 @@ class A2uiGraphQlClient(private val baseUrl: String) {
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
     }
 
     private val wsClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.SECONDS)
-            .build()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS)
+                .build()
     }
 
     // ── Subscription (WebSocket / graphql-ws protocol) ────────────────────────
@@ -58,13 +62,147 @@ class A2uiGraphQlClient(private val baseUrl: String) {
      *
      * Internally uses graphql-ws over WebSocket.
      */
-    fun subscribe(prompt: String, surfaceId: String = "main"): Flow<A2uiStreamEvent> = callbackFlow {
-        val wsUrl = baseUrl
-            .replace("http://", "ws://")
-            .replace("https://", "wss://") + "/subscriptions"
+    fun subscribe(prompt: String, surfaceId: String = "main"): Flow<A2uiStreamEvent> =
+            callbackFlow {
+                val wsUrl =
+                        baseUrl.replace("http://", "ws://").replace("https://", "wss://") +
+                                "/subscriptions"
+
+                val id = subscriptionId.getAndIncrement().toString()
+                val subscriptionQuery =
+                        """
+            subscription UiStream(${"$"}prompt: String!, ${"$"}surfaceId: String!) {
+              uiStream(prompt: ${"$"}prompt, surfaceId: ${"$"}surfaceId)
+            }
+        """.trimIndent()
+
+                val variables = buildJsonObject {
+                    put("prompt", prompt)
+                    put("surfaceId", surfaceId)
+                }
+
+                val request =
+                        Request.Builder()
+                                .url(wsUrl)
+                                .addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws")
+                                .build()
+
+                val ws =
+                        wsClient.newWebSocket(
+                                request,
+                                object : WebSocketListener() {
+                                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                                        // graphql-ws: send connection_init
+                                        webSocket.send(
+                                                """{"type":"connection_init","payload":{}}"""
+                                        )
+                                    }
+
+                                    override fun onMessage(webSocket: WebSocket, text: String) {
+                                        val msg =
+                                                try {
+                                                    jsonParser.parseToJsonElement(text).jsonObject
+                                                } catch (e: Exception) {
+                                                    Log.w(TAG, "Failed to parse WS message: $text")
+                                                    return
+                                                }
+                                        when (msg["type"]?.jsonPrimitive?.contentOrNull) {
+                                            "connection_ack" -> {
+                                                // Send the subscription request
+                                                val payload = buildJsonObject {
+                                                    put("query", subscriptionQuery)
+                                                    put("variables", variables)
+                                                }
+                                                webSocket.send(
+                                                        buildJsonObject {
+                                                                    put("type", "subscribe")
+                                                                    put("id", id)
+                                                                    put("payload", payload)
+                                                                }
+                                                                .toString()
+                                                )
+                                            }
+                                            "next" -> {
+                                                val data =
+                                                        msg["payload"]?.jsonObject?.get("data")
+                                                                ?.jsonObject
+                                                val jsonlLine =
+                                                        data?.get("uiStream")
+                                                                ?.jsonPrimitive
+                                                                ?.contentOrNull
+                                                if (jsonlLine != null) {
+                                                    val event = parseJsonlLine(jsonlLine)
+                                                    if (event != null) trySend(event)
+                                                }
+                                            }
+                                            "error" -> {
+                                                val errors =
+                                                        msg["payload"]?.jsonArray?.toString()
+                                                                ?: "Unknown GraphQL error"
+                                                Log.e(TAG, "GraphQL subscription error: $errors")
+                                                trySend(A2uiStreamEvent.StreamError(errors))
+                                                close()
+                                            }
+                                            "complete" -> {
+                                                Log.d(TAG, "Subscription complete (id=$id)")
+                                                trySend(A2uiStreamEvent.StreamClosed)
+                                                close()
+                                            }
+                                            "ping" -> webSocket.send("""{"type":"pong"}""")
+                                        }
+                                    }
+
+                                    override fun onFailure(
+                                            webSocket: WebSocket,
+                                            t: Throwable,
+                                            response: Response?
+                                    ) {
+                                        val msg =
+                                                t.message
+                                                        ?: response?.message ?: "WebSocket failure"
+                                        Log.e(TAG, "WebSocket failure: $msg", t)
+                                        trySend(A2uiStreamEvent.StreamError(msg, t))
+                                        close(t)
+                                    }
+
+                                    override fun onClosed(
+                                            webSocket: WebSocket,
+                                            code: Int,
+                                            reason: String
+                                    ) {
+                                        Log.d(TAG, "WebSocket closed: $code $reason")
+                                        trySend(A2uiStreamEvent.StreamClosed)
+                                        close()
+                                    }
+                                }
+                        )
+
+                awaitClose {
+                    // Send stop message before closing
+                    ws.send(
+                            buildJsonObject {
+                                        put("type", "complete")
+                                        put("id", id)
+                                    }
+                                    .toString()
+                    )
+                    ws.cancel()
+                }
+            }
+
+    // ── Raw subscription (emits JSON strings for Remote Compose rendering) ───
+
+    /**
+     * Opens a GraphQL subscription to `uiStream` and emits raw JSON strings. Each string is a
+     * single typed JSON object produced by a BFF agent.
+     */
+    fun subscribeRaw(prompt: String, surfaceId: String = "main"): Flow<String> = callbackFlow {
+        val wsUrl =
+                baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/subscriptions"
 
         val id = subscriptionId.getAndIncrement().toString()
-        val subscriptionQuery = """
+        val subscriptionQuery =
+                """
             subscription UiStream(${"$"}prompt: String!, ${"$"}surfaceId: String!) {
               uiStream(prompt: ${"$"}prompt, surfaceId: ${"$"}surfaceId)
             }
@@ -75,80 +213,90 @@ class A2uiGraphQlClient(private val baseUrl: String) {
             put("surfaceId", surfaceId)
         }
 
-        val request = Request.Builder()
-            .url(wsUrl)
-            .addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws")
-            .build()
+        val request =
+                Request.Builder()
+                        .url(wsUrl)
+                        .addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws")
+                        .build()
 
-        val ws = wsClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                // graphql-ws: send connection_init
-                webSocket.send("""{"type":"connection_init","payload":{}}""")
-            }
+        val ws =
+                wsClient.newWebSocket(
+                        request,
+                        object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) {
+                                webSocket.send("""{"type":"connection_init","payload":{}}""")
+                            }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                val msg = try {
-                    jsonParser.parseToJsonElement(text).jsonObject
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to parse WS message: $text")
-                    return
-                }
-                when (msg["type"]?.jsonPrimitive?.contentOrNull) {
-                    "connection_ack" -> {
-                        // Send the subscription request
-                        val payload = buildJsonObject {
-                            put("query", subscriptionQuery)
-                            put("variables", variables)
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                val msg =
+                                        try {
+                                            jsonParser.parseToJsonElement(text).jsonObject
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Failed to parse WS message: $text")
+                                            return
+                                        }
+                                when (msg["type"]?.jsonPrimitive?.contentOrNull) {
+                                    "connection_ack" -> {
+                                        val payload = buildJsonObject {
+                                            put("query", subscriptionQuery)
+                                            put("variables", variables)
+                                        }
+                                        webSocket.send(
+                                                buildJsonObject {
+                                                            put("type", "subscribe")
+                                                            put("id", id)
+                                                            put("payload", payload)
+                                                        }
+                                                        .toString()
+                                        )
+                                    }
+                                    "next" -> {
+                                        val data =
+                                                msg["payload"]?.jsonObject?.get("data")?.jsonObject
+                                        val line =
+                                                data?.get("uiStream")?.jsonPrimitive?.contentOrNull
+                                        if (line != null) trySend(line)
+                                    }
+                                    "error" -> {
+                                        val errors =
+                                                msg["payload"]?.jsonArray?.toString()
+                                                        ?: "Unknown GraphQL error"
+                                        Log.e(TAG, "GraphQL subscription error: $errors")
+                                        close(Exception(errors))
+                                    }
+                                    "complete" -> {
+                                        Log.d(TAG, "Subscription complete (id=$id)")
+                                        close()
+                                    }
+                                    "ping" -> webSocket.send("""{"type":"pong"}""")
+                                }
+                            }
+
+                            override fun onFailure(
+                                    webSocket: WebSocket,
+                                    t: Throwable,
+                                    response: Response?
+                            ) {
+                                val msg = t.message ?: response?.message ?: "WebSocket failure"
+                                Log.e(TAG, "WebSocket failure: $msg", t)
+                                close(t)
+                            }
+
+                            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                                Log.d(TAG, "WebSocket closed: $code $reason")
+                                close()
+                            }
                         }
-                        webSocket.send(buildJsonObject {
-                            put("type", "subscribe")
-                            put("id", id)
-                            put("payload", payload)
-                        }.toString())
-                    }
-                    "next" -> {
-                        val data = msg["payload"]?.jsonObject?.get("data")?.jsonObject
-                        val jsonlLine = data?.get("uiStream")?.jsonPrimitive?.contentOrNull
-                        if (jsonlLine != null) {
-                            val event = parseJsonlLine(jsonlLine)
-                            if (event != null) trySend(event)
-                        }
-                    }
-                    "error" -> {
-                        val errors = msg["payload"]?.jsonArray?.toString() ?: "Unknown GraphQL error"
-                        Log.e(TAG, "GraphQL subscription error: $errors")
-                        trySend(A2uiStreamEvent.StreamError(errors))
-                        close()
-                    }
-                    "complete" -> {
-                        Log.d(TAG, "Subscription complete (id=$id)")
-                        trySend(A2uiStreamEvent.StreamClosed)
-                        close()
-                    }
-                    "ping" -> webSocket.send("""{"type":"pong"}""")
-                }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                val msg = t.message ?: response?.message ?: "WebSocket failure"
-                Log.e(TAG, "WebSocket failure: $msg", t)
-                trySend(A2uiStreamEvent.StreamError(msg, t))
-                close(t)
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket closed: $code $reason")
-                trySend(A2uiStreamEvent.StreamClosed)
-                close()
-            }
-        })
+                )
 
         awaitClose {
-            // Send stop message before closing
-            ws.send(buildJsonObject {
-                put("type", "complete")
-                put("id", id)
-            }.toString())
+            ws.send(
+                    buildJsonObject {
+                                put("type", "complete")
+                                put("id", id)
+                            }
+                            .toString()
+            )
             ws.cancel()
         }
     }
@@ -157,7 +305,8 @@ class A2uiGraphQlClient(private val baseUrl: String) {
 
     /** Send a `sendUserAction` mutation to the BFF. */
     suspend fun sendUserAction(action: UserActionPayload) {
-        val mutation = """
+        val mutation =
+                """
             mutation SendUserAction(${"$"}input: UserActionInput!) {
               sendUserAction(input: ${"$"}input) { status received }
             }
@@ -178,7 +327,8 @@ class A2uiGraphQlClient(private val baseUrl: String) {
 
     /** Send a `reportError` mutation to the BFF. */
     suspend fun reportError(message: String, componentId: String? = null) {
-        val mutation = """
+        val mutation =
+                """
             mutation ReportError(${"$"}input: ClientErrorInput!) {
               reportError(input: ${"$"}input) { status }
             }
@@ -197,15 +347,15 @@ class A2uiGraphQlClient(private val baseUrl: String) {
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     private suspend fun graphQlPost(query: String, variables: JsonObject): JsonObject? {
-        val body = buildJsonObject {
-            put("query", query)
-            put("variables", variables)
-        }.toString().toRequestBody("application/json".toMediaType())
+        val body =
+                buildJsonObject {
+                            put("query", query)
+                            put("variables", variables)
+                        }
+                        .toString()
+                        .toRequestBody("application/json".toMediaType())
 
-        val request = Request.Builder()
-            .url("$baseUrl/graphql")
-            .post(body)
-            .build()
+        val request = Request.Builder().url("$baseUrl/graphql").post(body).build()
 
         return withContext(Dispatchers.IO) {
             try {
@@ -214,9 +364,7 @@ class A2uiGraphQlClient(private val baseUrl: String) {
                         Log.w(TAG, "GraphQL POST failed: ${response.code}")
                         return@use null
                     }
-                    response.body?.string()?.let {
-                        jsonParser.parseToJsonElement(it).jsonObject
-                    }
+                    response.body?.string()?.let { jsonParser.parseToJsonElement(it).jsonObject }
                 }
             } catch (e: IOException) {
                 Log.e(TAG, "GraphQL POST error", e)
@@ -233,19 +381,31 @@ private fun parseJsonlLine(line: String): A2uiStreamEvent? {
         val obj = jsonParser.parseToJsonElement(line).jsonObject
         when {
             "surfaceUpdate" in obj -> {
-                val payload = jsonParser.decodeFromJsonElement<SurfaceUpdatePayload>(obj["surfaceUpdate"]!!)
+                val payload =
+                        jsonParser.decodeFromJsonElement<SurfaceUpdatePayload>(
+                                obj["surfaceUpdate"]!!
+                        )
                 A2uiStreamEvent.SurfaceUpdate(payload)
             }
             "dataModelUpdate" in obj -> {
-                val payload = jsonParser.decodeFromJsonElement<DataModelUpdatePayload>(obj["dataModelUpdate"]!!)
+                val payload =
+                        jsonParser.decodeFromJsonElement<DataModelUpdatePayload>(
+                                obj["dataModelUpdate"]!!
+                        )
                 A2uiStreamEvent.DataModelUpdate(payload)
             }
             "beginRendering" in obj -> {
-                val payload = jsonParser.decodeFromJsonElement<BeginRenderingPayload>(obj["beginRendering"]!!)
+                val payload =
+                        jsonParser.decodeFromJsonElement<BeginRenderingPayload>(
+                                obj["beginRendering"]!!
+                        )
                 A2uiStreamEvent.BeginRendering(payload)
             }
             "deleteSurface" in obj -> {
-                val payload = jsonParser.decodeFromJsonElement<DeleteSurfacePayload>(obj["deleteSurface"]!!)
+                val payload =
+                        jsonParser.decodeFromJsonElement<DeleteSurfacePayload>(
+                                obj["deleteSurface"]!!
+                        )
                 A2uiStreamEvent.DeleteSurface(payload)
             }
             else -> {

@@ -15,7 +15,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.dgurnick.android.a2ui.A2uiSurfaceView
+import com.dgurnick.android.a2ui.RcDocumentView
 
 private const val DEFAULT_SURFACE_ID = "main"
 
@@ -93,12 +93,12 @@ fun A2uiApp(viewModel: A2uiViewModel) {
                 onClick = { submit(promptText) },
                 enabled = !uiState.isLoading && promptText.isNotBlank()
         ) { Text("Send") }
-        if (uiState.readySurfaceId != null || uiState.error != null) {
+        if (uiState.rcDocument != null || uiState.error != null) {
           Spacer(modifier = Modifier.width(4.dp))
           IconButton(
                   onClick = {
                     promptText = ""
-                    viewModel.reset(DEFAULT_SURFACE_ID)
+                    viewModel.reset()
                   }
           ) { Text("✕", style = MaterialTheme.typography.titleMedium) }
         }
@@ -129,7 +129,7 @@ fun A2uiApp(viewModel: A2uiViewModel) {
       }
 
       // ── Welcome / suggestion screen (shown when idle with no surface) ─
-      if (!uiState.isLoading && uiState.readySurfaceId == null && uiState.error == null) {
+      if (!uiState.isLoading && uiState.rcDocument == null && uiState.error == null) {
         Column(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                 verticalArrangement = Arrangement.Center,
@@ -157,15 +157,9 @@ fun A2uiApp(viewModel: A2uiViewModel) {
         }
       }
 
-      // ── A2UI surface rendering ─────────────────────────────────────────
-      uiState.readySurfaceId?.let { surfaceId ->
-        val surface = viewModel.getSurface(surfaceId)
-        if (surface != null) {
-          A2uiSurfaceView(
-                  surface = surface,
-                  onAction = { action -> viewModel.dispatchAction(action) }
-          )
-        }
+      // ── Remote Compose document rendering ──────────────────────────────
+      uiState.rcDocument?.let { bytes ->
+        RcDocumentView(bytes = bytes, modifier = Modifier.fillMaxSize())
       }
     }
   }

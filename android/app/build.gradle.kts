@@ -1,17 +1,18 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "com.dgurnick.android"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.dgurnick.android"
-        minSdk = 26
-        targetSdk = 34
+        minSdk = 29
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
 
@@ -22,10 +23,6 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     buildTypes {
@@ -64,7 +61,10 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
 
-    implementation(libs.osmdroid)
+    implementation(libs.rc.creation.android)
+    implementation(libs.rc.creation.compose)
+    implementation(libs.rc.player.core)
+    implementation(libs.rc.player.view)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
