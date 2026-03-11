@@ -1,4 +1,4 @@
-package com.dgurnick.bff
+package com.dgurnick.banking.bff
 
 import com.expediagroup.graphql.server.ktor.GraphQL
 import io.ktor.http.*
@@ -6,15 +6,15 @@ import io.ktor.server.application.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.websocket.*
-import com.dgurnick.bff.agent.AccountBalanceAgent
-import com.dgurnick.bff.agent.AtmFinderAgent
-import com.dgurnick.bff.agent.BankOffersAgent
-import com.dgurnick.bff.agent.FallbackAgent
-import com.dgurnick.bff.graphql.A2uiMutation
-import com.dgurnick.bff.graphql.A2uiQuery
-import com.dgurnick.bff.graphql.A2uiSubscription
-import com.dgurnick.bff.routes.configureRoutes
-import com.dgurnick.bff.usecase.UseCase
+import com.dgurnick.banking.bff.agent.AccountBalanceAgent
+import com.dgurnick.banking.bff.agent.AtmFinderAgent
+import com.dgurnick.banking.bff.agent.BankOffersAgent
+import com.dgurnick.banking.bff.agent.FallbackAgent
+import com.dgurnick.banking.bff.graphql.BankingMutation
+import com.dgurnick.banking.bff.graphql.BankingQuery
+import com.dgurnick.banking.bff.graphql.BankingSubscription
+import com.dgurnick.banking.bff.routes.configureRoutes
+import com.dgurnick.banking.bff.usecase.UseCase
 import java.time.Duration
 
 fun main(args: Array<String>): Unit = EngineMain.main(args)
@@ -42,10 +42,10 @@ fun Application.module() {
     )
     install(GraphQL) {
         schema {
-            packages = listOf("com.dgurnick.bff")
-            queries = listOf(A2uiQuery())
-            mutations = listOf(A2uiMutation())
-            subscriptions = listOf(A2uiSubscription(useCases))
+            packages = listOf("com.dgurnick.banking.bff")
+            queries = listOf(BankingQuery())
+            mutations = listOf(BankingMutation())
+            subscriptions = listOf(BankingSubscription(useCases))
         }
     }
 

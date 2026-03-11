@@ -1,4 +1,4 @@
-package com.dgurnick.bff.model
+package com.dgurnick.banking.bff.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Server → Client messages  (A2UI v0.8)
+// Server → Client messages  (Banking BFF)
 // Each JSONL line is one of these sealed variants.
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ data class DeleteSurfacePayload(val surfaceId: String)
 data class DeleteSurfaceMessage(val deleteSurface: DeleteSurfacePayload)
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Client → Server messages  (A2UI v0.8)
+// Client → Server messages  (Banking BFF)
 // ──────────────────────────────────────────────────────────────────────────────
 
 @Serializable

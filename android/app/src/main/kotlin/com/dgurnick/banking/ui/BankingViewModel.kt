@@ -1,12 +1,12 @@
-package com.dgurnick.android.ui
+package com.dgurnick.banking.ui
 
 import android.app.Application
 import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.dgurnick.android.a2ui.A2uiGraphQlClient
-import com.dgurnick.android.a2ui.UserActionPayload
+import com.dgurnick.banking.client.BankingGraphQlClient
+import com.dgurnick.banking.client.UserActionPayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -14,53 +14,53 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-private const val TAG = "A2UI.ViewModel"
+private const val TAG = "Banking.ViewModel"
 
-data class A2uiUiState(
+data class BankingUiState(
         val isLoading: Boolean = false,
         val error: String? = null,
         val rcDocument: ByteArray? = null
 )
 
-class A2uiViewModel(application: Application) : AndroidViewModel(application) {
+class BankingViewModel(application: Application) : AndroidViewModel(application) {
 
   private val appCtx = application.applicationContext
-  private lateinit var graphQlClient: A2uiGraphQlClient
+  private lateinit var graphQlClient: BankingGraphQlClient
 
-  private val _uiState = MutableStateFlow(A2uiUiState())
-  val uiState: StateFlow<A2uiUiState> = _uiState.asStateFlow()
+  private val _uiState = MutableStateFlow(BankingUiState())
+  val uiState: StateFlow<BankingUiState> = _uiState.asStateFlow()
 
   fun init(baseUrl: String) {
-    graphQlClient = A2uiGraphQlClient(baseUrl)
+    graphQlClient = BankingGraphQlClient(baseUrl)
   }
 
   fun sendPrompt(prompt: String, surfaceId: String = "main") {
-    _uiState.value = A2uiUiState(isLoading = true)
+    _uiState.value = BankingUiState(isLoading = true)
     viewModelScope.launch(Dispatchers.IO) {
       try {
         graphQlClient
                 .subscribeRaw(prompt, surfaceId)
                 .catch { e ->
                   Log.e(TAG, "Stream error", e)
-                  _uiState.value = A2uiUiState(error = e.message)
+                  _uiState.value = BankingUiState(error = e.message)
                 }
                 .collect { json ->
                   val obj = Json.parseToJsonElement(json).jsonObject
                   val rcBase64 = obj["rc"]?.jsonPrimitive?.content
                   if (rcBase64 != null) {
                     val bytes = Base64.decode(rcBase64, Base64.DEFAULT)
-                    _uiState.value = A2uiUiState(isLoading = false, rcDocument = bytes)
+                    _uiState.value = BankingUiState(isLoading = false, rcDocument = bytes)
                   }
                 }
       } catch (e: Exception) {
         Log.e(TAG, "Unexpected error", e)
-        _uiState.value = A2uiUiState(error = e.message)
+        _uiState.value = BankingUiState(error = e.message)
       }
     }
   }
 
   fun reset() {
-    _uiState.value = A2uiUiState()
+    _uiState.value = BankingUiState()
   }
 
   fun dispatchAction(action: UserActionPayload) {

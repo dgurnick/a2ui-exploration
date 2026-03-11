@@ -1,6 +1,6 @@
-package com.dgurnick.bff.agent
+package com.dgurnick.banking.bff.agent
 
-import com.dgurnick.bff.usecase.UseCase
+import com.dgurnick.banking.bff.usecase.UseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.*

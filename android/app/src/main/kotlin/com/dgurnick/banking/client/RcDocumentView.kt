@@ -1,4 +1,4 @@
-package com.dgurnick.android.a2ui
+package com.dgurnick.banking.client
 
 import androidx.compose.remote.player.view.RemoteComposePlayer
 import androidx.compose.runtime.Composable

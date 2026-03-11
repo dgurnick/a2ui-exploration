@@ -1,22 +1,22 @@
-package com.dgurnick.android.ui
+package com.dgurnick.banking.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import com.dgurnick.android.BuildConfig
-import com.dgurnick.android.ui.theme.A2uiTheme
+import com.dgurnick.banking.BuildConfig
+import com.dgurnick.banking.ui.theme.BankingTheme
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: A2uiViewModel by viewModels()
+    private val viewModel: BankingViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel.init(BuildConfig.BFF_BASE_URL)
         setContent {
-            A2uiTheme {
-                A2uiApp(viewModel = viewModel)
+            BankingTheme {
+                BankingApp(viewModel = viewModel)
             }
         }
     }

@@ -1,30 +1,52 @@
-# A2UI Exploration
+# Banking Demo — Remote Compose Exploration
 
-## Motivation
-
-Most mobile UI frameworks follow the same model: a designer creates screens, an engineer implements them in platform-specific code, the feature ships in a release, and the cycle repeats. That model works well at small scale but creates meaningful friction as products grow:
-
-- **Release lag.** A layout change, copy update, or new feature requires a code change, a review, a release, and (on iOS) App Store review before it reaches users.
-- **Platform duplication.** The same screen is built twice — once in Swift/UIKit or SwiftUI, once in Kotlin/Compose — with subtle divergence over time.
-- **Tight coupling between agent logic and client code.** When an AI agent wants to present information in a new way, the client must already know how to render it.
-
-**A2UI** inverts this by treating the UI as a data format. The server streams a component graph to the client; the client renders whatever it receives using a fixed, general-purpose widget vocabulary. Adding a new feature or changing a layout is a server-side change only — no app update needed, no platform duplication, and the agent fully controls what the user sees.
-
-This repository is an exploration of that premise: a minimal Ktor BFF emitting A2UI streams and a Jetpack Compose client that renders them generically, using a mock banking domain to demonstrate realistic use cases.
+This repository explores two different approaches to **server-driven UI** for a mock banking app: a classic [A2UI](https://a2ui.org) JSONL stream and (on the `feature/remote-compose` branch) **Jetpack Remote Compose**, where the server produces a binary layout document that the Android client renders without any UI logic of its own.
 
 ---
 
-## Architecture Overview
+## Branches
+
+| Branch | Approach | Server emits | Client does |
+|--------|----------|--------------|-------------|
+| `master` | A2UI v0.8 | JSONL component graph | Interprets component tree → Compose widgets |
+| `feature/remote-compose` | Remote Compose | Binary RC document (base64) | `RemoteComposePlayer.setDocument(bytes)` |
+
+---
+
+## A2UI vs Remote Compose
+
+### A2UI
+```
+BFF ──{ JSONL component graph }──► Android
+                                   A2uiRenderer interprets tree
+                                   emits Compose widgets at runtime
+```
+The server streams a *description* of the UI. The client must know how to interpret every component type — it owns the rendering logic.
+
+### Remote Compose (this branch)
+```
+BFF ──{ RC binary document }──► Android
+   RemoteComposeContext             RemoteComposePlayer.setDocument(bytes)
+   builds layout on the JVM         plays it — no layout logic on device
+```
+The server builds the *actual layout* using `RemoteComposeContext` (a pure JVM API from `androidx.compose.remote:remote-creation-core`). It serialises the result to a binary byte array, base64-encodes it, and sends it over the GraphQL subscription. The Android client only decodes the bytes and hands them to `RemoteComposePlayer`. No layout code lives on the device.
+
+**Key difference:** with Remote Compose, changing what the user sees — layout, typography, colours, content — is a server-side change only. The app needs no update.
+
+---
+
+## Architecture (Remote Compose branch)
 
 ```
-┌─────────────────────────┐        GraphQL / WS         ┌─────────────────────────┐
-│   Android (Compose)     │ ◄─────────────────────────► │   BFF (Ktor / JVM)      │
-│  com.dgurnick.android   │                             │  com.dgurnick.bff       │
-│                         │  Subscription: uiStream     │                         │
-│  A2uiGraphQlClient      │  Mutation:     sendAction   │  A2uiSchema (gql-k)     │
-│  A2uiSurfaceManager     │  Query:        agentCard    │  UseCase (interface)    │
-│  A2uiRenderer (Compose) │                             │  Banking agents (4)     │
-└─────────────────────────┘                             └─────────────────────────┘
+┌──────────────────────────────┐     GraphQL / WebSocket      ┌────────────────────────────────┐
+│   Android (Compose)          │ ◄──────────────────────────► │   BFF (Ktor / JVM)             │
+│  com.dgurnick.banking        │                              │  com.dgurnick.banking.bff      │
+│                              │  Subscription: uiStream      │                                │
+│  BankingGraphQlClient        │  Mutation:     sendAction    │  BankingSchema (graphql-kotlin)│
+│  BankingViewModel            │  Query:        agentCard     │  UseCase (interface)           │
+│  RcDocumentView              │                              │  Banking agents (4)            │
+│  RemoteComposePlayer         │  {"rc":"<base64 bytes>"}     │  RcDocumentBuilder             │
+└──────────────────────────────┘                              └────────────────────────────────┘
 ```
 
 ---
@@ -35,91 +57,76 @@ This repository is an exploration of that premise: a minimal Ktor BFF emitting A
 %%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#6650A4', 'primaryTextColor': '#E6E1E5', 'primaryBorderColor': '#CCC2DC', 'lineColor': '#CCC2DC', 'secondaryColor': '#1C1B1F', 'tertiaryColor': '#2B2930', 'background': '#1C1B1F', 'mainBkg': '#2B2930', 'nodeBorder': '#625B71', 'clusterBkg': '#2B2930', 'titleColor': '#E6E1E5', 'edgeLabelBackground': '#2B2930', 'actorBkg': '#2B2930', 'actorBorder': '#6650A4', 'actorTextColor': '#E6E1E5', 'activationBkgColor': '#6650A4', 'activationBorderColor': '#CCC2DC', 'signalColor': '#CCC2DC', 'signalTextColor': '#E6E1E5'}}}%%
 sequenceDiagram
     actor User
-    participant App   as Android App<br/>(Compose)
-    participant GQL   as GraphQL Client<br/>(graphql-ws)
-    participant BFF   as BFF (Ktor)
-    participant Agent as Matched UseCase agent
+    participant App    as Android App
+    participant GQL    as BankingGraphQlClient
+    participant BFF    as BFF (Ktor)
+    participant Agent  as Banking agent
+    participant RC     as RcDocumentBuilder
 
     User->>App: Types prompt, taps Send
-
-    App->>GQL: subscribe(prompt, surfaceId)
+    App->>GQL: subscribeRaw(prompt, surfaceId)
     GQL->>BFF: WS connection_init
     BFF-->>GQL: connection_ack
-
     GQL->>BFF: subscribe { uiStream(prompt, surfaceId) }
 
     Note over BFF: useCases.firstOrNull { canHandle(prompt) }
     BFF->>Agent: generate(prompt, surfaceId)
+    Agent->>RC: buildRcDocument(data: JsonObject)
 
-    loop A2UI JSONL stream
-        Agent-->>BFF: surfaceUpdate (component batch)
-        BFF-->>GQL: next { uiStream: "<jsonl line>" }
-        GQL-->>App: A2uiStreamEvent.SurfaceUpdate
-        App->>App: A2uiSurface.applyComponentEntry(...)
-    end
+    Note over RC: RemoteComposeContext(1080, 1920, ...)<br/>column / box / addTextStyle / buffer()
+    RC-->>Agent: Base64(ByteArray)
 
-    Agent-->>BFF: dataModelUpdate (domain data)
-    BFF-->>GQL: next { uiStream: "<jsonl line>" }
-    GQL-->>App: A2uiStreamEvent.DataModelUpdate
-    App->>App: A2uiDataModel.applyUpdate(...)
+    Agent-->>BFF: emit({"rc":"<base64>"})
+    BFF-->>GQL: next { uiStream: "{\"rc\":\"...\"}" }
+    GQL-->>App: raw JSON string
 
-    Agent-->>BFF: beginRendering (rootId)
-    BFF-->>GQL: next { uiStream: "<jsonl line>" }
-    GQL-->>App: A2uiStreamEvent.BeginRendering
-    App->>App: surface.isReady = true
-
-    BFF-->>GQL: complete
-    App->>App: A2uiSurfaceView renders component tree
-
-    User->>App: Taps a Button (action)
-    App->>BFF: mutation sendUserAction(name, surfaceId, context)
-    BFF-->>App: EventResult { success: true }
+    Note over App: BankingViewModel decodes base64<br/>→ ByteArray → BankingUiState
+    App->>App: RemoteComposePlayer.setDocument(bytes)
+    App->>User: Rendered layout (no client layout code)
 ```
 
 ---
 
 ## Tech Stack
 
-| Layer    | Technology |
-|----------|-----------|
-| Android  | Kotlin 1.9.24 · Jetpack Compose (BOM 2024.06.00) · Material3 · OkHttp 4.12 · kotlinx-serialization |
-| BFF      | Kotlin/JVM · Ktor 2.3.11 · graphql-kotlin-ktor-server 7.1.4 · Jackson 2.17.2 · WebSockets |
-| Protocol | A2UI v0.8 — JSONL streaming over GraphQL WebSocket subscription |
-| Build    | Gradle 8 (Kotlin DSL) · AGP 8.4.2 |
+| Layer   | Technology |
+|---------|-----------|
+| Android | Kotlin · Jetpack Compose (BOM 2024.06.00) · Material3 · OkHttp 4.12 · kotlinx-serialization · `remote-core` · `remote-player-core` · `remote-player-view` |
+| BFF     | Kotlin 2.1.20 · Ktor 2.3.11 · graphql-kotlin-ktor-server 7.1.4 · `remote-creation-core:1.0.0-alpha06` · `remote-core:1.0.0-alpha06` |
+| Protocol | GraphQL subscription (graphql-transport-ws) · `{"rc":"<base64 RC binary>"}` |
+| Build   | Gradle 8 (Kotlin DSL) · AGP 8.4.2 |
 
 ---
 
 ## Project Structure
 
 ```
-a2ui/
-├── android/                         # Android app (Jetpack Compose)
-│   ├── app/src/main/kotlin/com/dgurnick/android/
-│   │   ├── a2ui/
-│   │   │   ├── A2uiMessages.kt      # A2UI v0.8 wire-format models
-│   │   │   ├── A2uiDataModel.kt     # JSON-pointer data store + BoundValue resolver
-│   │   │   ├── A2uiGraphQlClient.kt # graphql-ws subscription + HTTP mutations
-│   │   │   └── A2uiRenderer.kt      # Compose widget registry + A2uiSurfaceView
-│   │   └── ui/
-│   │       ├── A2uiViewModel.kt     # StateFlow state, surface lifecycle
-│   │       ├── A2uiApp.kt           # Root Compose screen
-│   │       ├── MainActivity.kt      # ComponentActivity entry point
-│   │       └── theme/               # Material3 theme (Color, Type, Theme)
-│   └── gradle/libs.versions.toml
+banking-demo/
+├── android/                              # Android app (Jetpack Compose)
+│   └── app/src/main/kotlin/com/dgurnick/banking/
+│       ├── client/
+│       │   ├── BankingGraphQlClient.kt   # graphql-ws subscription + HTTP mutations
+│       │   ├── BankingMessages.kt        # wire-format models (legacy A2UI types)
+│       │   └── RcDocumentView.kt         # AndroidView wrapping RemoteComposePlayer
+│       └── ui/
+│           ├── BankingViewModel.kt       # StateFlow state; base64-decodes RC bytes from BFF
+│           ├── BankingApp.kt             # Root Compose screen (prompt bar + RC player)
+│           ├── MainActivity.kt           # ComponentActivity entry point
+│           └── theme/                    # Material3 theme (Color, BankingTheme, Type)
 │
-├── bff/                             # Backend-for-Frontend (Ktor)
-│   ├── src/main/kotlin/com/dgurnick/bff/
-│   │   ├── Application.kt           # Ktor app entry, GraphQL plugin
-│   │   ├── graphql/A2uiSchema.kt    # Query / Mutation / Subscription schema
-│   │   ├── usecase/UseCase.kt       # UseCase interface (canHandle + generate)
-│   │   ├── agent/AtmFinderAgent.kt  # "Where is the nearest ATM?"  → Map widget
-│   │   ├── agent/AccountBalanceAgent.kt    # "What is my account balance?"
-│   │   ├── agent/BankOffersAgent.kt        # "What offers do you have for me?"
-│   │   ├── agent/FallbackAgent.kt  # Catch-all — shows suggestions chips
-│   │   ├── model/A2uiMessages.kt    # BFF-side A2UI models
-│   │   ├── model/ComponentBuilders.kt      # Component DSL helpers (incl. Map)
-│   │   └── routes/A2uiRoutes.kt     # Ktor routing (POST, SDL, GraphiQL, WS)
-│   └── bruno/                       # Bruno API test collection
+├── bff/                                  # Backend-for-Frontend (Ktor)
+│   └── src/main/kotlin/com/dgurnick/banking/bff/
+│       ├── Application.kt                # Ktor app entry, GraphQL plugin
+│       ├── graphql/BankingSchema.kt      # Query / Mutation / Subscription schema
+│       ├── usecase/UseCase.kt            # UseCase interface (canHandle + generate)
+│       ├── agent/RcDocumentBuilder.kt    # ★ SERVER-SIDE RC creation (RemoteComposeContext)
+│       ├── agent/AccountBalanceAgent.kt  # "What is my account balance?"
+│       ├── agent/AtmFinderAgent.kt       # "Where is the nearest ATM?"
+│       ├── agent/BankOffersAgent.kt      # "What offers do you have for me?"
+│       ├── agent/FallbackAgent.kt        # Catch-all
+│       ├── model/BankingMessages.kt      # BFF-side models
+│       ├── model/ComponentBuilders.kt    # Component DSL helpers
+│       └── routes/BankingRoutes.kt       # Ktor routing (POST, SDL, GraphiQL, WS)
 │
 └── README.md
 ```
@@ -128,51 +135,52 @@ a2ui/
 
 ## GraphQL API
 
+### Subscription — RC document stream
+```graphql
+subscription {
+  uiStream(prompt: "What is my account balance?", surfaceId: "main")
+}
+```
+
+Each `next` payload contains a single JSON object:
+```json
+{ "rc": "<base64-encoded Remote Compose binary document>" }
+```
+
+Example prompts:
+
+| Prompt | Agent |
+|--------|-------|
+| "Where is the nearest ATM?" / "closest cash machine" | `AtmFinderAgent` |
+| "What is my account balance?" / "show transactions" | `AccountBalanceAgent` |
+| "What offers do you have?" / "any loan deals?" | `BankOffersAgent` |
+| _(anything else)_ | `FallbackAgent` |
+
 ### Query
 ```graphql
 query {
   agentCard {
-    id
     name
     description
     version
-    capabilities
+    supportedCatalogIds
+    acceptsInlineCatalogs
   }
 }
 ```
 
-### Subscription — A2UI stream
-```graphql
-subscription {
-  uiStream(prompt: "Where is the nearest ATM?", surfaceId: "main")
-}
-```
-
-Example prompts handled by the banking agents:
-
-| Prompt | Agent |
-|--------|-------|
-| "Where is the nearest ATM?" / "closest cash machine" | `AtmFinderAgent` — renders a Map + list |
-| "What is my account balance?" / "show transactions" | `AccountBalanceAgent` — cards per account |
-| "What offers do you have?" / "any loan deals?" | `BankOffersAgent` — personalised offer cards |
-| _(anything else)_ | `FallbackAgent` — "I didn't understand" + suggestion chips |
-Each `next` message carries a single JSONL line — one of:
-- `{"surfaceUpdate": { "surfaceId": "...", "components": [...] }}`
-- `{"dataModelUpdate": { "surfaceId": "...", "path": "/", "contents": [...] }}`
-- `{"beginRendering": { "surfaceId": "...", "root": "<componentId>" }}`
-- `{"deleteSurface": { "surfaceId": "..." }}`
-
 ### Mutations
 ```graphql
 mutation {
-  sendUserAction(input: { name: "search", surfaceId: "main", sourceComponentId: "searchBtn", timestamp: "...", context: "{}" }) {
-    success
+  sendUserAction(input: { name: "search", surfaceId: "main",
+    sourceComponentId: "searchBtn", timestamp: "...", context: "{}" }) {
+    status
   }
 }
 
 mutation {
   reportError(input: { message: "render failed", componentId: "card-1" }) {
-    success
+    status
   }
 }
 ```
@@ -194,7 +202,34 @@ cd bff
 ### Android
 1. Start the BFF (above).
 2. Open `android/` in Android Studio.
-3. Run on an emulator — the app connects to `http://10.0.2.2:8080` (emulator localhost alias).
+3. Run on an emulator — the app connects to `http://10.0.2.2:8080` (emulator → host alias).
+
+---
+
+## Key Implementation Detail — `RcDocumentBuilder.kt`
+
+All layout creation is in [`bff/…/agent/RcDocumentBuilder.kt`](bff/src/main/kotlin/com/dgurnick/banking/bff/agent/RcDocumentBuilder.kt). It uses the pure-JVM `RemoteComposeContext` API:
+
+```kotlin
+fun buildRcDocument(data: JsonObject): String {
+    val ctx = RemoteComposeContext(1080, 1920, type, RcPlatformServices.None)
+    ctx.column(RecordingModifier().fillMaxSize().padding(24f), 0, 0) {
+        // lambda-with-receiver: this = RemoteComposeContext
+        val titleStyle = addTextStyle(null, null, 22f, ...)
+        box(RecordingModifier().fillMaxWidth(), 0, 0) {
+            drawTextAnchored("Good morning, Alex", 0f, 0f, 1080f, 56f, titleStyle)
+        }
+    }
+    return Base64.getEncoder().encodeToString(ctx.buffer())
+}
+```
+
+The Android client receives the base64 string and renders it with no layout logic:
+
+```kotlin
+val bytes = Base64.decode(rcBase64, Base64.DEFAULT)
+RemoteComposePlayer(context).setDocument(bytes)
+```
 
 ---
 

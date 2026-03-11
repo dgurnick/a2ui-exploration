@@ -1,4 +1,4 @@
-package com.dgurnick.android.ui
+package com.dgurnick.banking.ui
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -15,7 +15,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.dgurnick.android.a2ui.RcDocumentView
+import com.dgurnick.banking.client.RcDocumentView
 
 private const val DEFAULT_SURFACE_ID = "main"
 
@@ -36,7 +36,7 @@ private val SUGGESTED_PROMPTS =
         )
 
 @Composable
-fun A2uiApp(viewModel: A2uiViewModel) {
+fun BankingApp(viewModel: BankingViewModel) {
   val context = LocalContext.current
   val uiState by viewModel.uiState.collectAsState()
   var promptText by remember { mutableStateOf("") }

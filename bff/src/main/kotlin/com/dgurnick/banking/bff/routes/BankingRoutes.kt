@@ -1,4 +1,4 @@
-package com.dgurnick.bff.routes
+package com.dgurnick.banking.bff.routes
 
 import com.expediagroup.graphql.server.ktor.*
 import io.ktor.server.application.*

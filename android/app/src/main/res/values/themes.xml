@@ -1,7 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme — Compose handles all visual theming.
          This style is only used for the activity window before Compose draws. -->
-    <style name="Theme.A2ui" parent="android:Theme.DeviceDefault.NoActionBar">
+    <style name="Theme.Banking" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
     </style>
 </resources>

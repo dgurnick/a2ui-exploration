@@ -1,4 +1,4 @@
-package com.dgurnick.android.ui.theme
+package com.dgurnick.banking.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

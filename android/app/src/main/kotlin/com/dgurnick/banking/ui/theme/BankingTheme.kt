@@ -1,4 +1,4 @@
-package com.dgurnick.android.ui.theme
+package com.dgurnick.banking.ui.theme
 
 import android.app.Activity
 import android.os.Build
@@ -24,7 +24,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun A2uiTheme(
+fun BankingTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit

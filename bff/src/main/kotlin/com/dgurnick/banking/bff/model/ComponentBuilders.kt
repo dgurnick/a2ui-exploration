@@ -1,4 +1,4 @@
-package com.dgurnick.bff.model
+package com.dgurnick.banking.bff.model
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -9,7 +9,7 @@ import kotlinx.serialization.json.addJsonObject
 
 /**
  * Helper builder DSL that constructs the [ComponentDefinition] (JsonObject) for
- * standard A2UI v0.8 catalog components.
+ * standard Banking BFF catalog components.
  *
  * Usage:
  *   component("Text") { put("text", literalString("Hello!")) }

@@ -1,4 +1,4 @@
-package com.dgurnick.bff.graphql
+package com.dgurnick.banking.bff.graphql
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Mutation
@@ -6,16 +6,16 @@ import com.expediagroup.graphql.server.operations.Query
 import com.expediagroup.graphql.server.operations.Subscription
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import com.dgurnick.bff.usecase.UseCase
+import com.dgurnick.banking.bff.usecase.UseCase
 import org.slf4j.LoggerFactory
 
-private val log = LoggerFactory.getLogger("a2ui.graphql")
+private val log = LoggerFactory.getLogger("banking.graphql")
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Output types
 // ──────────────────────────────────────────────────────────────────────────────
 
-@GraphQLDescription("A2UI agent capabilities (A2A agent card)")
+@GraphQLDescription("Banking agent capabilities (A2A agent card)")
 data class AgentCard(
     val name: String,
     val description: String,
@@ -34,7 +34,7 @@ data class EventResult(
 // Input types
 // ──────────────────────────────────────────────────────────────────────────────
 
-@GraphQLDescription("A user-initiated action from a rendered A2UI component")
+@GraphQLDescription("A user-initiated action from a rendered banking component")
 data class UserActionInput(
     val name: String,
     val surfaceId: String,
@@ -55,10 +55,10 @@ data class ClientErrorInput(
 // Query
 // ──────────────────────────────────────────────────────────────────────────────
 
-class A2uiQuery : Query {
+class BankingQuery : Query {
     @GraphQLDescription("Returns the agent capabilities (A2A agent card)")
     fun agentCard(): AgentCard = AgentCard(
-        name = "A2UI Banking Assistant",
+        name = "Banking Demo Assistant",
         description = "Banking assistant — ATM finder, account balances, and personalised offers",
         version = "0.8",
         supportedCatalogIds = listOf(
@@ -72,8 +72,8 @@ class A2uiQuery : Query {
 // Mutation
 // ──────────────────────────────────────────────────────────────────────────────
 
-class A2uiMutation : Mutation {
-    @GraphQLDescription("Submit a user action event from a rendered A2UI surface")
+class BankingMutation : Mutation {
+    @GraphQLDescription("Submit a user action event from a rendered banking surface")
     fun sendUserAction(input: UserActionInput): EventResult {
         log.info("userAction: name=${input.name} surface=${input.surfaceId} component=${input.sourceComponentId}")
         // In a production system this would route the event back to the active agent session.
@@ -91,10 +91,10 @@ class A2uiMutation : Mutation {
 // Subscription
 // ──────────────────────────────────────────────────────────────────────────────
 
-class A2uiSubscription(private val useCases: List<UseCase>) : Subscription {
+class BankingSubscription(private val useCases: List<UseCase>) : Subscription {
     @GraphQLDescription(
-        "Subscribe to an A2UI JSONL stream for the given prompt. " +
-        "Each emission is one JSONL line conforming to the A2UI v0.8 server-to-client schema."
+        "Subscribe to an Remote Compose document stream for the given prompt. " +
+        "Each emission is one JSONL line conforming to the Remote Compose binary document stream."
     )
     fun uiStream(
         @GraphQLDescription("Natural-language prompt sent to the agent")

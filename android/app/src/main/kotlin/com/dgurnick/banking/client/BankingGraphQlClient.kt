@@ -1,4 +1,4 @@
-package com.dgurnick.android.a2ui
+package com.dgurnick.banking.client
 
 import android.util.Log
 import java.io.IOException
@@ -14,20 +14,20 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
-private const val TAG = "A2UI.GraphQlClient"
+private const val TAG = "Banking.GraphQlClient"
 private val jsonParser = Json {
     ignoreUnknownKeys = true
     isLenient = true
 }
 
-/** Sealed result emitted by [A2uiGraphQlClient.subscribe]. */
-sealed class A2uiStreamEvent {
-    data class SurfaceUpdate(val payload: SurfaceUpdatePayload) : A2uiStreamEvent()
-    data class DataModelUpdate(val payload: DataModelUpdatePayload) : A2uiStreamEvent()
-    data class BeginRendering(val payload: BeginRenderingPayload) : A2uiStreamEvent()
-    data class DeleteSurface(val payload: DeleteSurfacePayload) : A2uiStreamEvent()
-    data class StreamError(val message: String, val cause: Throwable? = null) : A2uiStreamEvent()
-    object StreamClosed : A2uiStreamEvent()
+/** Sealed result emitted by [BankingGraphQlClient.subscribe]. */
+sealed class StreamEvent {
+    data class SurfaceUpdate(val payload: SurfaceUpdatePayload) : StreamEvent()
+    data class DataModelUpdate(val payload: DataModelUpdatePayload) : StreamEvent()
+    data class BeginRendering(val payload: BeginRenderingPayload) : StreamEvent()
+    data class DeleteSurface(val payload: DeleteSurfacePayload) : StreamEvent()
+    data class StreamError(val message: String, val cause: Throwable? = null) : StreamEvent()
+    object StreamClosed : StreamEvent()
 }
 
 /**
@@ -37,7 +37,7 @@ sealed class A2uiStreamEvent {
  * [graphql-ws protocol](https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md)
  * - Mutations / Queries: plain HTTP POST to `/graphql`
  */
-class A2uiGraphQlClient(private val baseUrl: String) {
+class BankingGraphQlClient(private val baseUrl: String) {
 
     private val subscriptionId = AtomicInteger(1)
 
@@ -58,11 +58,11 @@ class A2uiGraphQlClient(private val baseUrl: String) {
     // ── Subscription (WebSocket / graphql-ws protocol) ────────────────────────
 
     /**
-     * Opens a GraphQL subscription to `uiStream` and emits parsed [A2uiStreamEvent]s.
+     * Opens a GraphQL subscription to `uiStream` and emits parsed [StreamEvent]s.
      *
      * Internally uses graphql-ws over WebSocket.
      */
-    fun subscribe(prompt: String, surfaceId: String = "main"): Flow<A2uiStreamEvent> =
+    fun subscribe(prompt: String, surfaceId: String = "main"): Flow<StreamEvent> =
             callbackFlow {
                 val wsUrl =
                         baseUrl.replace("http://", "ws://").replace("https://", "wss://") +
@@ -140,12 +140,12 @@ class A2uiGraphQlClient(private val baseUrl: String) {
                                                         msg["payload"]?.jsonArray?.toString()
                                                                 ?: "Unknown GraphQL error"
                                                 Log.e(TAG, "GraphQL subscription error: $errors")
-                                                trySend(A2uiStreamEvent.StreamError(errors))
+                                                trySend(StreamEvent.StreamError(errors))
                                                 close()
                                             }
                                             "complete" -> {
                                                 Log.d(TAG, "Subscription complete (id=$id)")
-                                                trySend(A2uiStreamEvent.StreamClosed)
+                                                trySend(StreamEvent.StreamClosed)
                                                 close()
                                             }
                                             "ping" -> webSocket.send("""{"type":"pong"}""")
@@ -161,7 +161,7 @@ class A2uiGraphQlClient(private val baseUrl: String) {
                                                 t.message
                                                         ?: response?.message ?: "WebSocket failure"
                                         Log.e(TAG, "WebSocket failure: $msg", t)
-                                        trySend(A2uiStreamEvent.StreamError(msg, t))
+                                        trySend(StreamEvent.StreamError(msg, t))
                                         close(t)
                                     }
 
@@ -171,7 +171,7 @@ class A2uiGraphQlClient(private val baseUrl: String) {
                                             reason: String
                                     ) {
                                         Log.d(TAG, "WebSocket closed: $code $reason")
-                                        trySend(A2uiStreamEvent.StreamClosed)
+                                        trySend(StreamEvent.StreamClosed)
                                         close()
                                     }
                                 }
@@ -376,7 +376,7 @@ class A2uiGraphQlClient(private val baseUrl: String) {
 
 // ─── JSONL line parser ────────────────────────────────────────────────────────
 
-private fun parseJsonlLine(line: String): A2uiStreamEvent? {
+private fun parseJsonlLine(line: String): StreamEvent? {
     return try {
         val obj = jsonParser.parseToJsonElement(line).jsonObject
         when {
@@ -385,28 +385,28 @@ private fun parseJsonlLine(line: String): A2uiStreamEvent? {
                         jsonParser.decodeFromJsonElement<SurfaceUpdatePayload>(
                                 obj["surfaceUpdate"]!!
                         )
-                A2uiStreamEvent.SurfaceUpdate(payload)
+                StreamEvent.SurfaceUpdate(payload)
             }
             "dataModelUpdate" in obj -> {
                 val payload =
                         jsonParser.decodeFromJsonElement<DataModelUpdatePayload>(
                                 obj["dataModelUpdate"]!!
                         )
-                A2uiStreamEvent.DataModelUpdate(payload)
+                StreamEvent.DataModelUpdate(payload)
             }
             "beginRendering" in obj -> {
                 val payload =
                         jsonParser.decodeFromJsonElement<BeginRenderingPayload>(
                                 obj["beginRendering"]!!
                         )
-                A2uiStreamEvent.BeginRendering(payload)
+                StreamEvent.BeginRendering(payload)
             }
             "deleteSurface" in obj -> {
                 val payload =
                         jsonParser.decodeFromJsonElement<DeleteSurfacePayload>(
                                 obj["deleteSurface"]!!
                         )
-                A2uiStreamEvent.DeleteSurface(payload)
+                StreamEvent.DeleteSurface(payload)
             }
             else -> {
                 Log.w(TAG, "Unknown A2UI message: $line")

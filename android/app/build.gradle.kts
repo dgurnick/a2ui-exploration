@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.dgurnick.android"
+    namespace = "com.dgurnick.banking"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.dgurnick.android"
+        applicationId = "com.dgurnick.banking"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

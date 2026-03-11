@@ -1,4 +1,4 @@
-package com.dgurnick.bff.agent
+package com.dgurnick.banking.bff.agent
 
 import androidx.compose.remote.core.RcPlatformServices
 import androidx.compose.remote.creation.RemoteComposeContext

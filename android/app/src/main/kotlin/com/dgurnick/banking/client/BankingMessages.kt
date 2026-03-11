@@ -1,4 +1,4 @@
-package com.dgurnick.android.a2ui
+package com.dgurnick.banking.client
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 // ──────────────────────────────────────────────────────────────────────────────
-// A2UI v0.8 – Android client-side data models
+// Banking client wire models – Android client-side data models
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Matches the wire-format BoundValue. */
