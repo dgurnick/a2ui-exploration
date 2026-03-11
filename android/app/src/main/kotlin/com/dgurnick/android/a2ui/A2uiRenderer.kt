@@ -9,7 +9,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
@@ -286,7 +285,6 @@ val TextFieldWidget: WidgetComposable = { comp, model, surface, onAction ->
 }
 
 val MapWidget: WidgetComposable = { comp, model, _, _ ->
-    val context = LocalContext.current
 
     val centerLat = (comp.props.boundValue("centerLat")?.resolve(model) as? Double) ?: 37.7860
     val centerLon = (comp.props.boundValue("centerLon")?.resolve(model) as? Double) ?: -122.4071
@@ -303,6 +301,11 @@ val MapWidget: WidgetComposable = { comp, model, _, _ ->
         }
     } else emptyList()
 
+    val mapViewHolder = remember { arrayOfNulls<MapView>(1) }
+    DisposableEffect(Unit) {
+        onDispose { mapViewHolder[0]?.onDetach() }
+    }
+
     AndroidView(
         modifier = Modifier
             .fillMaxWidth()
@@ -310,13 +313,17 @@ val MapWidget: WidgetComposable = { comp, model, _, _ ->
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp)),
         factory = { ctx ->
-            Configuration.getInstance().userAgentValue = ctx.packageName
+            Configuration.getInstance().apply {
+                load(ctx, ctx.getSharedPreferences("osmdroid", 0))
+                userAgentValue = ctx.packageName
+            }
             MapView(ctx).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(15.0)
                 controller.setCenter(GeoPoint(centerLat, centerLon))
-            }
+                onResume()
+            }.also { mapViewHolder[0] = it }
         },
         update = { mapView ->
             mapView.overlays.clear()

@@ -27,6 +27,7 @@ class AtmFinderAgent : UseCase {
 
     override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
         val d = 40L
+        val (centerLat, centerLon) = parseLocation(prompt) ?: Pair(37.7860, -122.4071)
 
         fun su(componentId: String, def: ComponentDefinition): String =
             atmJson.encodeToString(SurfaceUpdateMessage(
@@ -81,8 +82,8 @@ class AtmFinderAgent : UseCase {
 
         // ── 4. Map ────────────────────────────────────────────────────────────
         emit(su("atm_map", component("Map") {
-            putLiteralNumber("centerLat", 37.7860)
-            putLiteralNumber("centerLon", -122.4071)
+            putLiteralNumber("centerLat", centerLat)
+            putLiteralNumber("centerLon", centerLon)
             putMapMarkers("/atms", latField = "lat", lonField = "lon", labelField = "name")
         }))
         delay(d)
@@ -156,7 +157,7 @@ class AtmFinderAgent : UseCase {
                     DataEntry(key = "location", valueMap = listOf(
                         DataEntry(key = "query", valueString = prompt)
                     )),
-                    DataEntry(key = "atms", valueMap = sampleAtms())
+                    DataEntry(key = "atms", valueMap = sampleAtms(centerLat, centerLon))
                 )
             )
         )))
@@ -168,42 +169,49 @@ class AtmFinderAgent : UseCase {
         )))
     }
 
-    private fun sampleAtms(): List<DataEntry> = listOf(
+    private fun parseLocation(prompt: String): Pair<Double, Double>? {
+        val m = Regex("""\[user_lat:([\-\d.]+),user_lon:([\-\d.]+)\]""").find(prompt) ?: return null
+        val lat = m.groupValues[1].toDoubleOrNull() ?: return null
+        val lon = m.groupValues[2].toDoubleOrNull() ?: return null
+        return Pair(lat, lon)
+    }
+
+    private fun sampleAtms(centerLat: Double = 37.7860, centerLon: Double = -122.4071): List<DataEntry> = listOf(
         DataEntry(key = "0", valueMap = listOf(
             DataEntry(key = "id", valueString = "atm1"),
             DataEntry(key = "name", valueString = "First National Bank ATM"),
-            DataEntry(key = "address", valueString = "100 Main St, San Francisco, CA"),
+            DataEntry(key = "address", valueString = "0.2 mi NE"),
             DataEntry(key = "distance", valueString = "0.2 mi"),
             DataEntry(key = "open_status", valueString = "Open 24/7"),
-            DataEntry(key = "lat", valueNumber = 37.7879),
-            DataEntry(key = "lon", valueNumber = -122.4074)
+            DataEntry(key = "lat", valueNumber = centerLat + 0.0019),
+            DataEntry(key = "lon", valueNumber = centerLon + 0.0003)
         )),
         DataEntry(key = "1", valueMap = listOf(
             DataEntry(key = "id", valueString = "atm2"),
             DataEntry(key = "name", valueString = "City Credit Union ATM"),
-            DataEntry(key = "address", valueString = "250 Market St, San Francisco, CA"),
+            DataEntry(key = "address", valueString = "0.5 mi E"),
             DataEntry(key = "distance", valueString = "0.5 mi"),
             DataEntry(key = "open_status", valueString = "Open until 10 PM"),
-            DataEntry(key = "lat", valueNumber = 37.7870),
-            DataEntry(key = "lon", valueNumber = -122.4065)
+            DataEntry(key = "lat", valueNumber = centerLat + 0.001),
+            DataEntry(key = "lon", valueNumber = centerLon + 0.006)
         )),
         DataEntry(key = "2", valueMap = listOf(
             DataEntry(key = "id", valueString = "atm3"),
             DataEntry(key = "name", valueString = "Metro Bank ATM"),
-            DataEntry(key = "address", valueString = "88 Powell St, San Francisco, CA"),
+            DataEntry(key = "address", valueString = "0.8 mi SW"),
             DataEntry(key = "distance", valueString = "0.8 mi"),
             DataEntry(key = "open_status", valueString = "Open 24/7"),
-            DataEntry(key = "lat", valueNumber = 37.7850),
-            DataEntry(key = "lon", valueNumber = -122.4085)
+            DataEntry(key = "lat", valueNumber = centerLat - 0.001),
+            DataEntry(key = "lon", valueNumber = centerLon - 0.0014)
         )),
         DataEntry(key = "3", valueMap = listOf(
             DataEntry(key = "id", valueString = "atm4"),
             DataEntry(key = "name", valueString = "Pacific Savings ATM"),
-            DataEntry(key = "address", valueString = "45 Mission St, San Francisco, CA"),
+            DataEntry(key = "address", valueString = "1.1 mi S"),
             DataEntry(key = "distance", valueString = "1.1 mi"),
             DataEntry(key = "open_status", valueString = "Closed – Opens 6 AM"),
-            DataEntry(key = "lat", valueNumber = 37.7840),
-            DataEntry(key = "lon", valueNumber = -122.4060)
+            DataEntry(key = "lat", valueNumber = centerLat - 0.002),
+            DataEntry(key = "lon", valueNumber = centerLon + 0.0011)
         ))
     )
 }

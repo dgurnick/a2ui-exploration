@@ -52,8 +52,15 @@ class A2uiDataModel {
     }
 
     fun resolveList(path: String): List<Map<String, Any?>>? {
+        val v = resolve(path) ?: return null
         @Suppress("UNCHECKED_CAST")
-        return resolve(path) as? List<Map<String, Any?>>
+        return when (v) {
+            is List<*> -> v as? List<Map<String, Any?>>
+            is Map<*, *> -> (v as Map<String, Any?>).keys
+                .sortedBy { it.toString().toIntOrNull() ?: Int.MAX_VALUE }
+                .mapNotNull { (v as Map<String, Any?>)[it] as? Map<String, Any?> }
+            else -> null
+        }
     }
 
     /** Write a value to a path (used for BoundValue initialization shorthand). */

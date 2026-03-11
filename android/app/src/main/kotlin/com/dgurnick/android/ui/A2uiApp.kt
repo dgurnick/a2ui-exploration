@@ -1,17 +1,33 @@
 package com.dgurnick.android.ui
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.location.LocationManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dgurnick.android.a2ui.A2uiSurfaceView
 import kotlinx.coroutines.flow.collectLatest
 
 private const val DEFAULT_SURFACE_ID = "main"
+
+@SuppressLint("MissingPermission")
+private fun fetchLastLocation(context: Context, onResult: (Double, Double) -> Unit) {
+    val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    (lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        ?: lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        ?: lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER))
+        ?.let { onResult(it.latitude, it.longitude) }
+}
 
 private val SUGGESTED_PROMPTS = listOf(
     "Where is the nearest ATM?",
@@ -21,12 +37,26 @@ private val SUGGESTED_PROMPTS = listOf(
 
 @Composable
 fun A2uiApp(viewModel: A2uiViewModel) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     var promptText by remember { mutableStateOf("") }
+    var userLat by remember { mutableStateOf<Double?>(null) }
+    var userLon by remember { mutableStateOf<Double?>(null) }
+
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) fetchLastLocation(context) { lat, lon -> userLat = lat; userLon = lon }
+    }
+
+    LaunchedEffect(Unit) {
+        locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
 
     fun submit(prompt: String) {
         promptText = prompt
-        viewModel.sendPrompt(prompt.trim(), DEFAULT_SURFACE_ID)
+        val loc = if (userLat != null && userLon != null) "\n[user_lat:$userLat,user_lon:$userLon]" else ""
+        viewModel.sendPrompt("${prompt.trim()}$loc", DEFAULT_SURFACE_ID)
     }
 
     Scaffold { paddingValues ->
