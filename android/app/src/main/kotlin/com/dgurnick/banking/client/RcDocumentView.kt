@@ -7,9 +7,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
 fun RcDocumentView(bytes: ByteArray, modifier: Modifier = Modifier) {
-  AndroidView(
-          factory = { ctx -> RemoteComposePlayer(ctx) },
-          update = { player -> player.setDocument(bytes) },
-          modifier = modifier
-  )
+  // key(bytes) recreates the player only when the document changes,
+  // preventing setDocument from being called on every recomposition.
+  androidx.compose.runtime.key(bytes) {
+    AndroidView(
+            factory = { ctx -> RemoteComposePlayer(ctx).apply { setDocument(bytes) } },
+            modifier = modifier
+    )
+  }
 }

@@ -9,7 +9,7 @@ group = "com.dgurnick.bff"
 version = "0.1.0"
 
 application {
-    mainClass.set("com.dgurnick.bff.ApplicationKt")
+    mainClass.set("com.dgurnick.banking.bff.ApplicationKt")
 }
 
 repositories {
