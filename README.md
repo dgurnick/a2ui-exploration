@@ -1,29 +1,20 @@
 # Banking Demo — Remote Compose Exploration
 
-This repository explores two different approaches to **server-driven UI** for a mock banking app: a classic [A2UI](https://a2ui.org) JSONL stream and (on the `feature/remote-compose` branch) **Jetpack Remote Compose**, where the server produces a binary layout document that the Android client renders without any UI logic of its own.
+This repository demonstrates **Jetpack Remote Compose** — a server-driven UI approach where the server produces a binary layout document and the Android client renders it with zero UI logic of its own. A mock banking domain (account balances, ATM finder, offers) is used to show realistic use cases.
 
 ---
 
-## Branches
+## How It Compares to Traditional Server-Driven UI
 
-| Branch | Approach | Server emits | Client does |
-|--------|----------|--------------|-------------|
-| `master` | A2UI v0.8 | JSONL component graph | Interprets component tree → Compose widgets |
-| `feature/remote-compose` | Remote Compose | Binary RC document (base64) | `RemoteComposePlayer.setDocument(bytes)` |
-
----
-
-## A2UI vs Remote Compose
-
-### A2UI
+Most server-driven UI frameworks (A2UI, Airbnb Ghost Platform, etc.) stream a *description* of the UI — a component graph the client interprets:
 ```
-BFF ──{ JSONL component graph }──► Android
-                                   A2uiRenderer interprets tree
-                                   emits Compose widgets at runtime
+BFF ──{ component graph / JSONL }──► Client
+                                      Client has a widget registry
+                                      Client owns the rendering logic
 ```
-The server streams a *description* of the UI. The client must know how to interpret every component type — it owns the rendering logic.
+With Remote Compose the server owns the rendering logic entirely:
 
-### Remote Compose (this branch)
+### Remote Compose
 ```
 BFF ──{ RC binary document }──► Android
    RemoteComposeContext             RemoteComposePlayer.setDocument(bytes)
@@ -41,7 +32,7 @@ The server builds the *actual layout* using `RemoteComposeContext` (a pure JVM A
 ┌──────────────────────────────┐     GraphQL / WebSocket      ┌────────────────────────────────┐
 │   Android (Compose)          │ ◄──────────────────────────► │   BFF (Ktor / JVM)             │
 │  com.dgurnick.banking        │                              │  com.dgurnick.banking.bff      │
-│                              │  Subscription: uiStream      │                                │
+│                              │  Subscription: rcStream      │                                │
 │  BankingGraphQlClient        │  Mutation:     sendAction    │  BankingSchema (graphql-kotlin)│
 │  BankingViewModel            │  Query:        agentCard     │  UseCase (interface)           │
 │  RcDocumentView              │                              │  Banking agents (4)            │
@@ -67,7 +58,7 @@ sequenceDiagram
     App->>GQL: subscribeRaw(prompt, surfaceId)
     GQL->>BFF: WS connection_init
     BFF-->>GQL: connection_ack
-    GQL->>BFF: subscribe { uiStream(prompt, surfaceId) }
+    GQL->>BFF: subscribe { rcStream(prompt, surfaceId) }
 
     Note over BFF: useCases.firstOrNull { canHandle(prompt) }
     BFF->>Agent: generate(prompt, surfaceId)
@@ -77,7 +68,7 @@ sequenceDiagram
     RC-->>Agent: Base64(ByteArray)
 
     Agent-->>BFF: emit({"rc":"<base64>"})
-    BFF-->>GQL: next { uiStream: "{\"rc\":\"...\"}" }
+    BFF-->>GQL: next { rcStream: "{\"rc\":\"...\"}"
     GQL-->>App: raw JSON string
 
     Note over App: BankingViewModel decodes base64<br/>→ ByteArray → BankingUiState
@@ -106,7 +97,7 @@ banking-demo/
 │   └── app/src/main/kotlin/com/dgurnick/banking/
 │       ├── client/
 │       │   ├── BankingGraphQlClient.kt   # graphql-ws subscription + HTTP mutations
-│       │   ├── BankingMessages.kt        # wire-format models (legacy A2UI types)
+│   │   ├── BankingMessages.kt        # GraphQL wire-format models
 │       │   └── RcDocumentView.kt         # AndroidView wrapping RemoteComposePlayer
 │       └── ui/
 │           ├── BankingViewModel.kt       # StateFlow state; base64-decodes RC bytes from BFF
@@ -138,7 +129,7 @@ banking-demo/
 ### Subscription — RC document stream
 ```graphql
 subscription {
-  uiStream(prompt: "What is my account balance?", surfaceId: "main")
+  rcStream(prompt: "What is my account balance?", surfaceId: "main")
 }
 ```
 
@@ -233,76 +224,35 @@ RemoteComposePlayer(context).setDocument(bytes)
 
 ---
 
-## A2UI Protocol — Message Flow
-
-| Step | Direction | Message | Purpose |
-|------|-----------|---------|---------|
-| 1 | Server → Client | `surfaceUpdate` (×N) | Stream component graph batches |
-| 2 | Server → Client | `dataModelUpdate` | Populate bound data |
-| 3 | Server → Client | `beginRendering` | Signal root + render start |
-| 4 | Client → Server | `sendUserAction` | User interaction events |
-| 5 | Server → Client | `deleteSurface` | Tear down a surface |
-
-Components reference children by ID (adjacency list). `BoundValue` fields resolve at render time against the `A2uiDataModel` using JSON Pointer paths.
-
----
-
 ## Bruno Tests
 
 API tests live in `bff/bruno/`. Import the collection in [Bruno](https://www.usebruno.com/) and select the **local** environment.
 
 ---
 
-## iOS Client — What Would Be Required
-
-The A2UI protocol is transport- and platform-agnostic. An iOS client would need exactly the same three building blocks as the Android one, implemented with native Apple tooling:
-
-### 1. GraphQL WebSocket client
-The `graphql-ws` subprotocol must be spoken over a WebSocket. On iOS this is typically done with [Apollo iOS](https://www.apollographql.com/docs/ios/) (which has built-in `graphql-ws` support) or a lightweight custom implementation using `URLSessionWebSocketTask`. The subscription, mutation, and query shapes are identical to the Android client.
-
-### 2. Component renderer
-A Swift / SwiftUI equivalent of `A2uiRenderer.kt`:
-- A `WidgetRegistry` dictionary mapping type-name strings to `@ViewBuilder` closures
-- A recursive `A2uiSurfaceView` that looks up each component by ID, resolves its type, and calls the matching builder
-- The same `BoundValue` / JSON-pointer data model resolution logic, implemented in Swift with `Codable`
-
-The built-in widget set (Column → `VStack`, Row → `HStack`, Text → `Text`, Button → `Button`, Card → `GroupBox`, List → `LazyVStack` inside `ScrollView`) maps naturally to SwiftUI primitives with no third-party dependencies.
-
-### 3. Map widget
-OSMDroid is Android-only. The iOS equivalent is:
-- **MapKit + SwiftUI** (`Map` view, `Annotation`) — zero dependencies, no API key, ships with every iOS device. This is the direct equivalent of the OSMDroid choice made here.
-- OpenStreetMap tiles can be used via `MKTileOverlay` pointed at the OSM tile CDN if higher-detail tiles are needed.
-
-### Shared protocol artefacts
-The A2UI JSON wire format and all `UseCase` agents live entirely in the BFF and require no changes. The BFF is already platform-agnostic by design — the iOS client would subscribe to the same `uiStream` endpoint and receive the same JSONL stream.
-
----
-
 ## Design Decisions — Pros & Cons
 
-### A2UI: Server-driven UI over a streaming protocol
+### Remote Compose: server-owned layout
 
 | | |
 |---|---|
-| **Pro** | All feature logic lives on the server. The client ships once and renders any future feature without an app-store update. |
-| **Pro** | A/B testing, personalisation, and content changes are instant — no release cycle required. |
-| **Pro** | The component graph is declarative and inspectable as plain JSON, making it easy to audit and test independently of both client and server. |
-| **Con** | Every interaction round-trips to the server. Offline or high-latency scenarios degrade significantly without an explicit caching layer. |
-| **Con** | Debugging spans two codebases simultaneously — a rendering bug requires checking both the JSONL emitted by the BFF and the Compose widget tree. |
-| **Con** | The client's widget vocabulary is a hard constraint. Any widget the server references that the client doesn't know how to render is silently skipped, making schema drift a silent failure mode. |
+| **Pro** | Zero layout code on the device. Any layout change — typography, spacing, new content — is a BFF-only change with no app update required. |
+| **Pro** | No widget registry schema drift. The server constructs whatever layout it needs; the client is a pure player. |
+| **Pro** | `RemoteComposeContext` is a pure JVM API — the BFF has no Android dependency and can be unit-tested as ordinary JVM code. |
+| **Con** | RC documents are binary and opaque — harder to inspect mid-stream than plain JSON. |
+| **Con** | `RemoteComposeContext` API is alpha (`1.0.0-alpha06`). Surface area and behaviour may change before stable release. |
+| **Con** | The player only renders; it cannot trigger local device behaviour (camera, biometrics, etc.) without a separate side-channel. |
 
 ---
 
-### GraphQL WebSocket subscriptions (graphql-ws) for streaming
+### GraphQL WebSocket subscription for streaming
 
 | | |
 |---|---|
-| **Pro** | Subscriptions give a well-understood, typed contract between client and server. The schema documents what can flow over the wire. |
-| **Pro** | GraphiQL works out of the box for manual exploration and debugging without writing a dedicated test client. |
-| **Pro** | graphql-kotlin generates the schema from annotated Kotlin classes, eliminating the need to maintain a separate SDL file. |
-| **Con** | GraphQL subscriptions carry meaningful overhead per message (framing, type envelope). For a high-frequency stream of small JSONL lines, a plain WebSocket or SSE would be lighter. |
-| **Con** | The `next` payload is a stringly-typed `String` (the JSONL line). GraphQL's type system offers no benefit here — the inner structure is opaque to the schema. |
-| **Con** | graphql-kotlin's annotation-driven approach makes it harder to compose schemas from independent modules compared with SDL-first approaches. |
+| **Pro** | Typed contract between client and server; GraphiQL works out of the box for debugging. |
+| **Pro** | graphql-kotlin generates the schema from annotated Kotlin classes — no separate SDL to maintain. |
+| **Con** | The `next` payload is a stringly-typed `String`. GraphQL's type system adds no value for the RC binary blob. |
+| **Con** | Meaningful framing overhead per message; a plain WebSocket or SSE would be lighter for a single large binary payload. |
 
 ---
 
@@ -310,30 +260,14 @@ The A2UI JSON wire format and all `UseCase` agents live entirely in the BFF and 
 
 | | |
 |---|---|
-| **Pro** | Minimal footprint — no reflection-heavy DI container, starts in under a second. Straightforward to package as a shadow JAR. |
-| **Pro** | Coroutine-native: `Flow`-based streaming aligns naturally with Kotlin coroutines and the subscription model. |
-| **Con** | Ktor's plugin ecosystem is thinner than Spring Boot's. Features like structured logging, metrics, and distributed tracing require more manual wiring. |
-| **Con** | Error handling across the WebSocket lifecycle (connection drops, back-pressure, subscription cancellation) requires explicit care; there is no framework-level retry or circuit-breaker support built in. |
+| **Pro** | Minimal footprint, coroutine-native, starts in under a second, packages cleanly as a shadow JAR. |
+| **Con** | Thinner plugin ecosystem than Spring Boot — logging, metrics, and tracing require more manual wiring. |
 
 ---
 
-### UseCase interface with `canHandle` keyword matching
+### UseCase / `canHandle` dispatch
 
 | | |
 |---|---|
-| **Pro** | Trivially simple to add a new use case — implement two methods, add to the ordered list in `Application.kt`. No framework or annotation required. |
-| **Pro** | The ordered-list dispatch makes priority explicit and inspectable in one place. |
-| **Con** | Keyword matching on raw prompt strings is brittle. Synonyms, typos, or multi-intent prompts will fall through to the `FallbackAgent`. In production this layer should be replaced by an intent-classification model or an LLM routing step. |
-| **Con** | There is no context window — each subscription call is stateless. Multi-turn conversations (e.g. "show my savings account" after already viewing balances) are not supported without adding session state. |
-
----
-
-### Jetpack Compose + custom `WidgetRegistry` renderer
-
-| | |
-|---|---|
-| **Pro** | Adding a new widget type (e.g. `MapWidget`) requires only one entry in the registry and no changes elsewhere in the app. The renderer is genuinely open for extension. |
-| **Pro** | Compose's declarative model pairs well with the server-driven component graph — re-composing a subtree when a `surfaceUpdate` arrives is natural. |
-| **Con** | The `WidgetRegistry` is a global `Map<String, @Composable>`. It is not scoped, versioned, or validated against the server's catalog, so a server sending an unknown widget type silently renders nothing. |
-| **Con** | Canvas-based widgets (e.g. `MapWidget`) bypass Compose's layout system. Sizing, accessibility, and dark-mode support must be handled entirely by hand. |
-| **Con** | `kotlinx-serialization` and `BoundValue` polymorphism require `@SerialName` discipline across every model class. A mismatch between BFF field names and Android model field names produces silent null/default values rather than a compile-time error. |
+| **Pro** | Simple to extend — implement two methods, add to the list in `Application.kt`. |
+| **Con** | Keyword matching is brittle; production use would need an intent-classification model or LLM routing. |
