@@ -1,14 +1,40 @@
 package com.dgurnick.android.a2ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.time.Instant
+
+// ─── Map support types ────────────────────────────────────────────────────────
+
+@Serializable
+data class MapMarkersConfig(
+    val dataBinding: BoundValue,
+    val latField: String,
+    val lonField: String,
+    val labelField: String
+)
+
+data class MapPin(val lat: Double, val lon: Double, val label: String)
+
+private fun asDouble(v: Any?): Double? = when (v) {
+    is Double -> v
+    is Number -> v.toDouble()
+    is String -> v.toDoubleOrNull()
+    else -> null
+}
 
 // ─── Surface data classes ─────────────────────────────────────────────────────
 
@@ -67,7 +93,8 @@ object WidgetRegistry {
         "Button"    to ButtonWidget,
         "Card"      to CardWidget,
         "List"      to ListWidget,
-        "TextField" to TextFieldWidget
+        "TextField" to TextFieldWidget,
+        "Map"       to MapWidget
     )
 
     fun register(typeName: String, widget: WidgetComposable) { registry[typeName] = widget }
@@ -252,6 +279,93 @@ val TextFieldWidget: WidgetComposable = { comp, model, surface, onAction ->
             }
         } else null
     )
+}
+
+val MapWidget: WidgetComposable = { comp, model, _, _ ->
+    // Resolve center coordinates
+    val centerLat = (comp.props.boundValue("centerLat")?.resolve(model) as? Double) ?: 37.7860
+    val centerLon = (comp.props.boundValue("centerLon")?.resolve(model) as? Double) ?: -122.4071
+
+    // Parse markers config and build pin list from data model
+    val markersConfig = comp.props["markers"]?.let {
+        runCatching { Json.decodeFromJsonElement<MapMarkersConfig>(it) }.getOrNull()
+    }
+    val pins: List<MapPin> = if (markersConfig != null) {
+        val items = model.resolveList(markersConfig.dataBinding.path ?: "") ?: emptyList()
+        items.mapNotNull { item ->
+            val lat = asDouble(item[markersConfig.latField]) ?: return@mapNotNull null
+            val lon = asDouble(item[markersConfig.lonField]) ?: return@mapNotNull null
+            MapPin(lat, lon, item[markersConfig.labelField]?.toString() ?: "")
+        }
+    } else emptyList()
+
+    // Compute bounding box with padding
+    val allLats = pins.map { it.lat } + centerLat
+    val allLons = pins.map { it.lon } + centerLon
+    val pad = 0.003
+    val minLat = (allLats.minOrNull() ?: centerLat) - pad
+    val maxLat = (allLats.maxOrNull() ?: centerLat) + pad
+    val minLon = (allLons.minOrNull() ?: centerLon) - pad
+    val maxLon = (allLons.maxOrNull() ?: centerLon) + pad
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+    ) {
+        val w = size.width
+        val h = size.height
+
+        fun latToY(lat: Double) = ((maxLat - lat) / (maxLat - minLat) * h).toFloat()
+        fun lonToX(lon: Double) = ((lon - minLon) / (maxLon - minLon) * w).toFloat()
+
+        // ── Background tiles ──────────────────────────────────────────────────
+        drawRect(color = Color(0xFFDCEAF5))
+        val tileSize = 40f
+        var ty = 0f
+        var rowEven = true
+        while (ty < h) {
+            var tx = if (rowEven) 0f else tileSize
+            while (tx < w) {
+                drawRect(
+                    color = Color(0xFFC8DCF0),
+                    topLeft = Offset(tx, ty),
+                    size = Size(tileSize, tileSize)
+                )
+                tx += tileSize * 2
+            }
+            ty += tileSize
+            rowEven = !rowEven
+        }
+
+        // ── Street grid ───────────────────────────────────────────────────────
+        val streetColor = Color(0xFFFFFFFF)
+        val streetWidth = 3f
+        // Horizontal streets
+        for (frac in listOf(0.3f, 0.5f, 0.7f)) {
+            drawLine(streetColor, Offset(0f, h * frac), Offset(w, h * frac), streetWidth)
+        }
+        // Vertical streets
+        for (frac in listOf(0.25f, 0.5f, 0.75f)) {
+            drawLine(streetColor, Offset(w * frac, 0f), Offset(w * frac, h), streetWidth)
+        }
+
+        // ── Center location pin (blue) ─────────────────────────────────────────
+        val cx = lonToX(centerLon)
+        val cy = latToY(centerLat)
+        drawCircle(Color(0xFF1565C0), radius = 10f, center = Offset(cx, cy))
+        drawCircle(Color.White, radius = 4f, center = Offset(cx, cy))
+
+        // ── ATM markers (red pin with white dot) ─────────────────────────────
+        pins.forEach { pin ->
+            val px = lonToX(pin.lon)
+            val py = latToY(pin.lat)
+            drawCircle(Color(0xFFD32F2F), radius = 14f, center = Offset(px, py))
+            drawCircle(Color.White, radius = 4f, center = Offset(px, py))
+        }
+    }
 }
 
 val UnknownWidget: WidgetComposable = { comp, _, _, _ ->

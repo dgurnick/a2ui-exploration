@@ -119,15 +119,4 @@ data class ClientEventMessage(
     val error: ClientErrorPayload? = null
 )
 
-// ─── Parsed component representation used by the renderer ────────────────────
 
-/**
- * A resolved component after the client has parsed the raw JsonObject.
- * [typeName] is the catalog component name (e.g. "Text", "Button").
- * [props] are the raw JSON properties for that component.
- */
-data class ResolvedComponent(
-    val id: String,
-    val typeName: String,
-    val props: JsonObject
-)

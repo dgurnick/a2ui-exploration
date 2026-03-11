@@ -92,4 +92,17 @@ class BuilderScope {
     fun putString(key: String, value: String) {
         obj[key] = kotlinx.serialization.json.JsonPrimitive(value)
     }
+
+    fun putLiteralNumber(key: String, value: Double) {
+        obj[key] = buildJsonObject { put("literalNumber", value) }
+    }
+
+    fun putMapMarkers(path: String, latField: String, lonField: String, labelField: String) {
+        obj["markers"] = buildJsonObject {
+            putJsonObject("dataBinding") { put("path", path) }
+            put("latField", latField)
+            put("lonField", lonField)
+            put("labelField", labelField)
+        }
+    }
 }

@@ -1,6 +1,5 @@
 package com.dgurnick.android.ui
 
-import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +7,7 @@ import com.dgurnick.android.a2ui.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 
 private const val TAG = "A2UI.ViewModel"
@@ -66,7 +66,7 @@ class A2uiViewModel : ViewModel() {
         sourceComponentId = sourceComponentId,
         timestamp = Instant.now().toString(),
         context = kotlinx.serialization.json.buildJsonObject {
-            context.forEach { (k, v) -> put(k, v) }
+            context.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
         }
     )
 

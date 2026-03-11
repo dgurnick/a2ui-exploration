@@ -5,7 +5,8 @@ import com.expediagroup.graphql.server.operations.Mutation
 import com.expediagroup.graphql.server.operations.Query
 import com.expediagroup.graphql.server.operations.Subscription
 import kotlinx.coroutines.flow.Flow
-import com.dgurnick.bff.agent.RestaurantFinderAgent
+import kotlinx.coroutines.flow.emptyFlow
+import com.dgurnick.bff.usecase.UseCase
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("a2ui.graphql")
@@ -57,8 +58,8 @@ data class ClientErrorInput(
 class A2uiQuery : Query {
     @GraphQLDescription("Returns the agent capabilities (A2A agent card)")
     fun agentCard(): AgentCard = AgentCard(
-        name = "A2UI Restaurant Finder",
-        description = "Demo BFF agent that generates A2UI UIs for restaurant search",
+        name = "A2UI Banking Assistant",
+        description = "Banking assistant — ATM finder, account balances, and personalised offers",
         version = "0.8",
         supportedCatalogIds = listOf(
             "https://a2ui.org/specification/v0_8/standard_catalog_definition.json"
@@ -90,7 +91,7 @@ class A2uiMutation : Mutation {
 // Subscription
 // ──────────────────────────────────────────────────────────────────────────────
 
-class A2uiSubscription : Subscription {
+class A2uiSubscription(private val useCases: List<UseCase>) : Subscription {
     @GraphQLDescription(
         "Subscribe to an A2UI JSONL stream for the given prompt. " +
         "Each emission is one JSONL line conforming to the A2UI v0.8 server-to-client schema."
@@ -102,6 +103,8 @@ class A2uiSubscription : Subscription {
         surfaceId: String = "main"
     ): Flow<String> {
         log.info("uiStream subscription: prompt='$prompt' surfaceId='$surfaceId'")
-        return RestaurantFinderAgent(surfaceId).generate(prompt)
+        return useCases.firstOrNull { it.canHandle(prompt) }
+            ?.generate(prompt, surfaceId)
+            ?: emptyFlow()
     }
 }

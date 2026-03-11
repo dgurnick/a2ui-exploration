@@ -33,9 +33,10 @@ class A2uiDataModel {
         val parts = path.removePrefix("/").split("/").filter { it.isNotEmpty() }
         var current: Any? = root
         for (part in parts) {
-            current = when (current) {
-                is Map<*, *> -> current[part]
-                is List<*> -> part.toIntOrNull()?.let { current.getOrNull(it) }
+            val prev = current
+            current = when (prev) {
+                is Map<*, *> -> prev[part]
+                is List<*> -> part.toIntOrNull()?.let { prev.getOrNull(it) }
                 else -> return null
             }
         }
