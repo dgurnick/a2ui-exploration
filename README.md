@@ -1,6 +1,16 @@
 # A2UI Exploration
 
-A monorepo demonstrating the **A2UI v0.8** protocol — a streaming, server-driven UI architecture where the server describes the entire UI as an adjacency-list component graph and the client renders it without any bespoke per-feature code.
+## Motivation
+
+Most mobile UI frameworks follow the same model: a designer creates screens, an engineer implements them in platform-specific code, the feature ships in a release, and the cycle repeats. That model works well at small scale but creates meaningful friction as products grow:
+
+- **Release lag.** A layout change, copy update, or new feature requires a code change, a review, a release, and (on iOS) App Store review before it reaches users.
+- **Platform duplication.** The same screen is built twice — once in Swift/UIKit or SwiftUI, once in Kotlin/Compose — with subtle divergence over time.
+- **Tight coupling between agent logic and client code.** When an AI agent wants to present information in a new way, the client must already know how to render it.
+
+**A2UI** inverts this by treating the UI as a data format. The server streams a component graph to the client; the client renders whatever it receives using a fixed, general-purpose widget vocabulary. Adding a new feature or changing a layout is a server-side change only — no app update needed, no platform duplication, and the agent fully controls what the user sees.
+
+This repository is an exploration of that premise: a minimal Ktor BFF emitting A2UI streams and a Jetpack Compose client that renders them generically, using a mock banking domain to demonstrate realistic use cases.
 
 ---
 
@@ -205,6 +215,31 @@ Components reference children by ID (adjacency list). `BoundValue` fields resolv
 ## Bruno Tests
 
 API tests live in `bff/bruno/`. Import the collection in [Bruno](https://www.usebruno.com/) and select the **local** environment.
+
+---
+
+## iOS Client — What Would Be Required
+
+The A2UI protocol is transport- and platform-agnostic. An iOS client would need exactly the same three building blocks as the Android one, implemented with native Apple tooling:
+
+### 1. GraphQL WebSocket client
+The `graphql-ws` subprotocol must be spoken over a WebSocket. On iOS this is typically done with [Apollo iOS](https://www.apollographql.com/docs/ios/) (which has built-in `graphql-ws` support) or a lightweight custom implementation using `URLSessionWebSocketTask`. The subscription, mutation, and query shapes are identical to the Android client.
+
+### 2. Component renderer
+A Swift / SwiftUI equivalent of `A2uiRenderer.kt`:
+- A `WidgetRegistry` dictionary mapping type-name strings to `@ViewBuilder` closures
+- A recursive `A2uiSurfaceView` that looks up each component by ID, resolves its type, and calls the matching builder
+- The same `BoundValue` / JSON-pointer data model resolution logic, implemented in Swift with `Codable`
+
+The built-in widget set (Column → `VStack`, Row → `HStack`, Text → `Text`, Button → `Button`, Card → `GroupBox`, List → `LazyVStack` inside `ScrollView`) maps naturally to SwiftUI primitives with no third-party dependencies.
+
+### 3. Map widget
+OSMDroid is Android-only. The iOS equivalent is:
+- **MapKit + SwiftUI** (`Map` view, `Annotation`) — zero dependencies, no API key, ships with every iOS device. This is the direct equivalent of the OSMDroid choice made here.
+- OpenStreetMap tiles can be used via `MKTileOverlay` pointed at the OSM tile CDN if higher-detail tiles are needed.
+
+### Shared protocol artefacts
+The A2UI JSON wire format and all `UseCase` agents live entirely in the BFF and require no changes. The BFF is already platform-agnostic by design — the iOS client would subscribe to the same `uiStream` endpoint and receive the same JSONL stream.
 
 ---
 

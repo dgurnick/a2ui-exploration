@@ -48,6 +48,12 @@ class A2uiViewModel : ViewModel() {
     /** Returns the [A2uiSurface] for [surfaceId] so Compose can read it. */
     fun getSurface(surfaceId: String): A2uiSurface? = surfaceManager.get(surfaceId)
 
+    /** Clear all surfaces and return to the welcome screen. */
+    fun reset(surfaceId: String = "main") {
+        surfaceManager.delete(surfaceId)
+        _uiState.value = A2uiUiState()
+    }
+
     /** Dispatch a user action to the BFF via GraphQL mutation. */
     fun dispatchAction(action: UserActionPayload) {
         viewModelScope.launch(Dispatchers.IO) {

@@ -1,6 +1,5 @@
 package com.dgurnick.android.a2ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,10 +8,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.time.Instant
@@ -282,11 +286,11 @@ val TextFieldWidget: WidgetComposable = { comp, model, surface, onAction ->
 }
 
 val MapWidget: WidgetComposable = { comp, model, _, _ ->
-    // Resolve center coordinates
+    val context = LocalContext.current
+
     val centerLat = (comp.props.boundValue("centerLat")?.resolve(model) as? Double) ?: 37.7860
     val centerLon = (comp.props.boundValue("centerLon")?.resolve(model) as? Double) ?: -122.4071
 
-    // Parse markers config and build pin list from data model
     val markersConfig = comp.props["markers"]?.let {
         runCatching { Json.decodeFromJsonElement<MapMarkersConfig>(it) }.getOrNull()
     }
@@ -299,73 +303,41 @@ val MapWidget: WidgetComposable = { comp, model, _, _ ->
         }
     } else emptyList()
 
-    // Compute bounding box with padding
-    val allLats = pins.map { it.lat } + centerLat
-    val allLons = pins.map { it.lon } + centerLon
-    val pad = 0.003
-    val minLat = (allLats.minOrNull() ?: centerLat) - pad
-    val maxLat = (allLats.maxOrNull() ?: centerLat) + pad
-    val minLon = (allLons.minOrNull() ?: centerLon) - pad
-    val maxLon = (allLons.maxOrNull() ?: centerLon) + pad
-
-    Canvas(
+    AndroidView(
         modifier = Modifier
             .fillMaxWidth()
             .height(220.dp)
             .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-    ) {
-        val w = size.width
-        val h = size.height
-
-        fun latToY(lat: Double) = ((maxLat - lat) / (maxLat - minLat) * h).toFloat()
-        fun lonToX(lon: Double) = ((lon - minLon) / (maxLon - minLon) * w).toFloat()
-
-        // ── Background tiles ──────────────────────────────────────────────────
-        drawRect(color = Color(0xFFDCEAF5))
-        val tileSize = 40f
-        var ty = 0f
-        var rowEven = true
-        while (ty < h) {
-            var tx = if (rowEven) 0f else tileSize
-            while (tx < w) {
-                drawRect(
-                    color = Color(0xFFC8DCF0),
-                    topLeft = Offset(tx, ty),
-                    size = Size(tileSize, tileSize)
-                )
-                tx += tileSize * 2
+            .clip(RoundedCornerShape(12.dp)),
+        factory = { ctx ->
+            Configuration.getInstance().userAgentValue = ctx.packageName
+            MapView(ctx).apply {
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                controller.setZoom(15.0)
+                controller.setCenter(GeoPoint(centerLat, centerLon))
             }
-            ty += tileSize
-            rowEven = !rowEven
+        },
+        update = { mapView ->
+            mapView.overlays.clear()
+            Marker(mapView).apply {
+                position = GeoPoint(centerLat, centerLon)
+                title = "You are here"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                mapView.overlays.add(this)
+            }
+            pins.forEach { pin ->
+                Marker(mapView).apply {
+                    position = GeoPoint(pin.lat, pin.lon)
+                    title = pin.label
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    mapView.overlays.add(this)
+                }
+            }
+            mapView.controller.setCenter(GeoPoint(centerLat, centerLon))
+            mapView.invalidate()
         }
-
-        // ── Street grid ───────────────────────────────────────────────────────
-        val streetColor = Color(0xFFFFFFFF)
-        val streetWidth = 3f
-        // Horizontal streets
-        for (frac in listOf(0.3f, 0.5f, 0.7f)) {
-            drawLine(streetColor, Offset(0f, h * frac), Offset(w, h * frac), streetWidth)
-        }
-        // Vertical streets
-        for (frac in listOf(0.25f, 0.5f, 0.75f)) {
-            drawLine(streetColor, Offset(w * frac, 0f), Offset(w * frac, h), streetWidth)
-        }
-
-        // ── Center location pin (blue) ─────────────────────────────────────────
-        val cx = lonToX(centerLon)
-        val cy = latToY(centerLat)
-        drawCircle(Color(0xFF1565C0), radius = 10f, center = Offset(cx, cy))
-        drawCircle(Color.White, radius = 4f, center = Offset(cx, cy))
-
-        // ── ATM markers (red pin with white dot) ─────────────────────────────
-        pins.forEach { pin ->
-            val px = lonToX(pin.lon)
-            val py = latToY(pin.lat)
-            drawCircle(Color(0xFFD32F2F), radius = 14f, center = Offset(px, py))
-            drawCircle(Color.White, radius = 4f, center = Offset(px, py))
-        }
-    }
+    )
 }
 
 val UnknownWidget: WidgetComposable = { comp, _, _, _ ->
