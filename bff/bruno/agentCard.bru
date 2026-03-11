@@ -1,0 +1,34 @@
+meta {
+  name: Agent Card
+  type: graphql
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/graphql
+  body: graphql
+  auth: none
+}
+
+body:graphql {
+  query {
+    agentCard {
+      id
+      name
+      description
+      version
+      capabilities
+    }
+  }
+}
+
+tests {
+  test("status 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  test("has agentCard", function() {
+    const body = res.getBody();
+    expect(body).to.have.nested.property("data.agentCard");
+    expect(body.data.agentCard.id).to.be.a("string");
+  });
+}

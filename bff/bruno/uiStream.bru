@@ -1,0 +1,34 @@
+meta {
+  name: UI Stream Subscription
+  type: graphql
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/graphql
+  body: graphql
+  auth: none
+}
+
+body:graphql {
+  subscription UiStream($prompt: String!, $surfaceId: String!) {
+    uiStream(prompt: $prompt, surfaceId: $surfaceId)
+  }
+}
+
+body:graphql:vars {
+  {
+    "prompt": "Find Italian restaurants near me",
+    "surfaceId": "main"
+  }
+}
+
+docs {
+  This subscription streams A2UI JSONL lines over the graphql-ws protocol.
+  Connect via ws://localhost:8080/subscriptions for live streaming.
+  Each 'next' message contains one JSONL line:
+    - {"surfaceUpdate": {...}}
+    - {"dataModelUpdate": {...}}
+    - {"beginRendering": {...}}
+    - {"deleteSurface": {...}}
+}

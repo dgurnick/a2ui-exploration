@@ -1,0 +1,42 @@
+meta {
+  name: Send User Action
+  type: graphql
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/graphql
+  body: graphql
+  auth: none
+}
+
+body:graphql {
+  mutation SendUserAction($input: UserActionInput!) {
+    sendUserAction(input: $input) {
+      success
+    }
+  }
+}
+
+body:graphql:vars {
+  {
+    "input": {
+      "name": "search",
+      "surfaceId": "main",
+      "sourceComponentId": "searchBtn",
+      "timestamp": "2026-03-11T00:00:00Z",
+      "context": "{}"
+    }
+  }
+}
+
+tests {
+  test("status 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  test("sendUserAction success", function() {
+    const body = res.getBody();
+    expect(body).to.have.nested.property("data.sendUserAction.success");
+    expect(body.data.sendUserAction.success).to.equal(true);
+  });
+}

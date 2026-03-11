@@ -1,0 +1,44 @@
+# ── IDE ────────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ── Gradle ─────────────────────────────────────────────────────────────────────
+**/.gradle/
+**/build/
+gradle-app.setting
+
+# ── Android ────────────────────────────────────────────────────────────────────
+local.properties
+android/app/release/
+*.keystore
+*.jks
+captures/
+*.hprof
+
+# ── JVM ────────────────────────────────────────────────────────────────────────
+*.class
+*.jar
+*.war
+*.ear
+# Re-allow Gradle wrapper JARs (must come after *.jar)
+!gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+out/
+bin/
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Bruno ──────────────────────────────────────────────────────────────────────
+bff/bruno/environments/local-secret.bru
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Node (tooling) ─────────────────────────────────────────────────────────────
+node_modules/

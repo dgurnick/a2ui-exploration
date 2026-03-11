@@ -1,0 +1,39 @@
+meta {
+  name: Report Error
+  type: graphql
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/graphql
+  body: graphql
+  auth: none
+}
+
+body:graphql {
+  mutation ReportError($input: ClientErrorInput!) {
+    reportError(input: $input) {
+      success
+    }
+  }
+}
+
+body:graphql:vars {
+  {
+    "input": {
+      "message": "Component failed to render",
+      "componentId": "card-1"
+    }
+  }
+}
+
+tests {
+  test("status 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  test("reportError success", function() {
+    const body = res.getBody();
+    expect(body).to.have.nested.property("data.reportError.success");
+    expect(body.data.reportError.success).to.equal(true);
+  });
+}
