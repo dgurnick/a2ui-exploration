@@ -6,7 +6,7 @@ This repository demonstrates **Jetpack Remote Compose** — a server-driven UI a
 
 ## Demo
 
-![Banking Demo](demo.gif)
+[▶️ Watch Demo Video](demo.mp4)
 
 **Features demonstrated:**
 - **ATM Finder** — Interactive OpenStreetMap with pinch-to-zoom, pan gestures, and auto-filtering ATM list
