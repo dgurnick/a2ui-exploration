@@ -271,3 +271,53 @@ API tests live in `bff/bruno/`. Import the collection in [Bruno](https://www.use
 |---|---|
 | **Pro** | Simple to extend — implement two methods, add to the list in `Application.kt`. |
 | **Con** | Keyword matching is brittle; production use would need an intent-classification model or LLM routing. |
+
+---
+
+## Remote Compose Limitations
+
+Remote Compose renders **static server-generated UI**. The server builds the layout once, serializes it to bytes, and the client plays it back. This architecture has inherent limitations:
+
+### No Native Interactivity
+
+| Feature | Limitation | Workaround |
+|---------|------------|------------|
+| **Interactive Maps** | RC cannot embed a zoomable/scrollable map (Google Maps, OSM). Drawing primitives like `drawRect`, `drawOval`, and `drawLine` can render a static map illustration, but it won't support pinch-to-zoom, pan gestures, or real tile loading. | Send location data as structured JSON alongside (or instead of) the RC document. The Android client renders a native `MapView` using that data. |
+| **Expandable/Collapsible Content** | RC has no state — once rendered, it cannot respond to tap events that toggle visibility. | Send structured data and let the client render native Compose `AnimatedVisibility` or `ExpandableCard` components. |
+| **Form Input** | RC cannot capture text input, checkboxes, or other form controls. | Use a hybrid approach: RC for display, native components for input, with mutations to send data back to the BFF. |
+| **Animations** | RC documents are static snapshots. Animated transitions, loading spinners, or morphing layouts are not supported. | The client can animate *around* the RC content (e.g., fade-in), but the RC content itself is static. |
+| **Device APIs** | RC cannot trigger camera, biometrics, location services, or other device capabilities. | The client must handle these separately and pass results to the BFF via mutations. |
+
+### When to Use Native Components Instead
+
+If your use case requires:
+- **Maps with zoom/pan** → Use native MapView + structured location data
+- **Expand/collapse cards** → Use native Compose with structured offer data  
+- **Pull-to-refresh** → Wrap RC in native `SwipeRefresh`
+- **Tap actions that change state** → Use native components or hybrid approach
+- **Real-time updates** → Re-fetch/re-render the entire RC document
+
+### Hybrid Architecture Pattern
+
+For features requiring interactivity, the BFF can send both:
+1. **RC document** — for static, styled content (headers, descriptions, styled text)
+2. **Structured JSON data** — for interactive elements the client renders natively
+
+```json
+{
+  "rc": "<base64 RC document for static header>",
+  "mapData": {
+    "userLat": 37.786,
+    "userLon": -122.407,
+    "markers": [
+      { "lat": 37.788, "lon": -122.405, "title": "ATM 1", "distance": "0.2 mi" }
+    ]
+  }
+}
+```
+
+The Android client:
+- Renders `rc` with `RemoteComposePlayer` for the styled header
+- Renders `mapData` with a native interactive `MapView`
+
+This preserves the server-driven philosophy while enabling full native interactivity where needed.

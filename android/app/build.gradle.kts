@@ -16,6 +16,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         // BFF base URL – override via local.properties or build flavour
         buildConfigField("String", "BFF_BASE_URL", "\"http://10.0.2.2:8080\"")
     }
@@ -65,6 +67,12 @@ dependencies {
     implementation(libs.rc.core)
     implementation(libs.rc.player.core)
     implementation(libs.rc.player.view)
+
+    // OpenStreetMap for interactive maps (RC can't do zoom/pan)
+    implementation(libs.osmdroid)
+
+    // RC creation library for tests
+    androidTestImplementation("androidx.compose.remote:remote-creation-core:1.0.0-alpha06")
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

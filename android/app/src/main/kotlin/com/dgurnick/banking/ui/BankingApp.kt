@@ -15,6 +15,8 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.dgurnick.banking.client.ExpandableOffersView
+import com.dgurnick.banking.client.InteractiveMapView
 import com.dgurnick.banking.client.RcDocumentView
 
 private const val DEFAULT_SURFACE_ID = "main"
@@ -63,6 +65,10 @@ fun BankingApp(viewModel: BankingViewModel) {
     viewModel.sendPrompt("${prompt.trim()}$loc", DEFAULT_SURFACE_ID)
   }
 
+  // Check if any content is showing
+  val hasContent =
+          uiState.rcDocument != null || uiState.mapData != null || uiState.offersData != null
+
   Scaffold { paddingValues ->
     Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
       // ── Prompt bar ────────────────────────────────────────────────────
@@ -93,7 +99,7 @@ fun BankingApp(viewModel: BankingViewModel) {
                 onClick = { submit(promptText) },
                 enabled = !uiState.isLoading && promptText.isNotBlank()
         ) { Text("Send") }
-        if (uiState.rcDocument != null || uiState.error != null) {
+        if (hasContent || uiState.error != null) {
           Spacer(modifier = Modifier.width(4.dp))
           IconButton(
                   onClick = {
@@ -128,8 +134,8 @@ fun BankingApp(viewModel: BankingViewModel) {
         }
       }
 
-      // ── Welcome / suggestion screen (shown when idle with no surface) ─
-      if (!uiState.isLoading && uiState.rcDocument == null && uiState.error == null) {
+      // ── Welcome / suggestion screen (shown when idle with no content) ─
+      if (!uiState.isLoading && !hasContent && uiState.error == null) {
         Column(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                 verticalArrangement = Arrangement.Center,
@@ -157,7 +163,19 @@ fun BankingApp(viewModel: BankingViewModel) {
         }
       }
 
-      // ── Remote Compose document rendering ──────────────────────────────
+      // ── Content rendering ──────────────────────────────────────────────
+
+      // Interactive Map (for ATM finder - RC can't do zoom/pan)
+      uiState.mapData?.let { mapData ->
+        InteractiveMapView(mapData = mapData, modifier = Modifier.fillMaxSize())
+      }
+
+      // Expandable Offers (for offers - RC can't do expand/collapse)
+      uiState.offersData?.let { offersData ->
+        ExpandableOffersView(offersData = offersData, modifier = Modifier.fillMaxSize())
+      }
+
+      // Remote Compose document (for account balance and other static content)
       uiState.rcDocument?.let { bytes ->
         RcDocumentView(bytes = bytes, modifier = Modifier.fillMaxSize())
       }
