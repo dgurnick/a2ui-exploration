@@ -53,5 +53,30 @@ class AccountBalanceAgent : UseCase {
         }
         val rcBase64 = buildRcDocument(data)
         emit(buildJsonObject { put("rc", rcBase64) }.toString())
+
+        // Add loan eligibility info as follow-up
+        val checkingBalance = 3240.55
+        val savingsBalance = 41109.62
+        val maxLoanAmount = ((checkingBalance + savingsBalance) * 0.8).toInt()
+        val formattedMax = "%,d".format(maxLoanAmount)
+
+        emit(
+                buildJsonObject {
+                            put("type", "chat")
+                            put(
+                                    "text",
+                                    """💡 **Loan Eligibility**
+
+Based on your combined account balances, you're pre-approved for loans up to **$$formattedMax**.
+
+Would you like to explore our loan options?"""
+                            )
+                            putJsonArray("buttons") {
+                                add("Yes, show me loan options")
+                                add("No thanks")
+                            }
+                        }
+                        .toString()
+        )
     }
 }

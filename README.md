@@ -6,7 +6,7 @@ This repository demonstrates **Jetpack Remote Compose** — a server-driven UI a
 
 ## Demo
 
-<video src="demo.mp4" width="360" controls autoplay loop muted></video>
+![Banking Demo](demo.gif)
 
 **Features demonstrated:**
 - **ATM Finder** — Interactive OpenStreetMap with pinch-to-zoom, pan gestures, and auto-filtering ATM list
@@ -364,7 +364,7 @@ fun buildRcDocument(data: JsonObject): String {
         // lambda-with-receiver: this = RemoteComposeContext
         val titleStyle = addTextStyle(null, null, 22f, ...)
         box(RecordingModifier().fillMaxWidth(), 0, 0) {
-            drawTextAnchored("Good morning, Fadi", 0f, 0f, 1080f, 56f, titleStyle)
+            drawTextAnchored("Good morning, Alex", 0f, 0f, 1080f, 56f, titleStyle)
         }
     }
     return Base64.getEncoder().encodeToString(ctx.buffer())

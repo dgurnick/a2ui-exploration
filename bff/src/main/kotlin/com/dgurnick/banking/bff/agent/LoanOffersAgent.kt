@@ -18,11 +18,12 @@ private val log = LoggerFactory.getLogger("banking.loan")
 class LoanOffersAgent : UseCase {
 
   // Mock account balance - in production this would come from core banking API
+  // These values match AccountBalanceAgent for consistency
   companion object {
-    const val MOCK_CHECKING_BALANCE = 12450.32
-    const val MOCK_SAVINGS_BALANCE = 45678.90
-    // Max loan amount is 3x checking balance (simple creditworthiness heuristic)
-    val MAX_LOAN_AMOUNT = (MOCK_CHECKING_BALANCE * 3).toInt()
+    const val MOCK_CHECKING_BALANCE = 3240.55
+    const val MOCK_SAVINGS_BALANCE = 41109.62
+    // Max loan amount is 80% of combined balances (creditworthiness heuristic)
+    val MAX_LOAN_AMOUNT = ((MOCK_CHECKING_BALANCE + MOCK_SAVINGS_BALANCE) * 0.8).toInt()
   }
 
   private enum class LoanStep {
@@ -221,7 +222,8 @@ class LoanOffersAgent : UseCase {
   }
 
   private fun generateInsufficientBalanceResponse(requestedAmount: Int): String {
-    val formattedBalance = "%,.2f".format(MOCK_CHECKING_BALANCE)
+    val combinedBalance = MOCK_CHECKING_BALANCE + MOCK_SAVINGS_BALANCE
+    val formattedBalance = "%,.2f".format(combinedBalance)
     val formattedMax = "%,d".format(MAX_LOAN_AMOUNT)
     val formattedRequested = "%,d".format(requestedAmount)
 
@@ -241,11 +243,11 @@ class LoanOffersAgent : UseCase {
                       "text",
                       """⚠️ **Amount Exceeds Limit**
 
-The amount you requested ($$formattedRequested) exceeds your current account balance of $$formattedBalance.
+The amount you requested ($$formattedRequested) exceeds your pre-approved limit.
 
-Based on your account history, you're approved for loans up to **$$formattedMax** — which is within your approved limit.
+Based on your combined account balance of $$formattedBalance, you're approved for loans up to **$$formattedMax**.
 
-Please select an amount that works better for your situation:"""
+Please select an amount within your approved limit:"""
               )
               putJsonArray("buttons") { alternatives.take(4).forEach { add(it) } }
             }
