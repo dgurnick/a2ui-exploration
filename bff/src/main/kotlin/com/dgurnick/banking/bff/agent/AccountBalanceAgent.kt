@@ -1,5 +1,6 @@
 package com.dgurnick.banking.bff.agent
 
+import com.dgurnick.banking.bff.conversation.Conversation
 import com.dgurnick.banking.bff.usecase.UseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -12,7 +13,7 @@ import kotlinx.serialization.json.*
  */
 class AccountBalanceAgent : UseCase {
 
-    override fun canHandle(prompt: String): Boolean {
+    override fun canHandle(prompt: String, conversation: Conversation): Boolean {
         val p = prompt.lowercase()
         return p.contains("balance") ||
                 p.contains("account") ||
@@ -20,10 +21,14 @@ class AccountBalanceAgent : UseCase {
                 p.contains("transaction")
     }
 
-    override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
+    override fun generate(
+            prompt: String,
+            surfaceId: String,
+            conversation: Conversation
+    ): Flow<String> = flow {
         val data = buildJsonObject {
             put("type", "account_balance")
-            put("greeting", "Good morning, Alex")
+            put("greeting", "Good morning, Fadi")
             putJsonArray("accounts") {
                 addJsonObject {
                     put("name", "Everyday Checking")

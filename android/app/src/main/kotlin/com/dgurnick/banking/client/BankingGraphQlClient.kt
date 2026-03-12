@@ -62,133 +62,131 @@ class BankingGraphQlClient(private val baseUrl: String) {
      *
      * Internally uses graphql-ws over WebSocket.
      */
-    fun subscribe(prompt: String, surfaceId: String = "main"): Flow<StreamEvent> =
-            callbackFlow {
-                val wsUrl =
-                        baseUrl.replace("http://", "ws://").replace("https://", "wss://") +
-                                "/subscriptions"
+    fun subscribe(prompt: String, surfaceId: String = "main"): Flow<StreamEvent> = callbackFlow {
+        val wsUrl =
+                baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/subscriptions"
 
-                val id = subscriptionId.getAndIncrement().toString()
-                val subscriptionQuery =
-                        """
+        val id = subscriptionId.getAndIncrement().toString()
+        val subscriptionQuery =
+                """
             subscription UiStream(${"$"}prompt: String!, ${"$"}surfaceId: String!) {
               uiStream(prompt: ${"$"}prompt, surfaceId: ${"$"}surfaceId)
             }
         """.trimIndent()
 
-                val variables = buildJsonObject {
-                    put("prompt", prompt)
-                    put("surfaceId", surfaceId)
-                }
+        val variables = buildJsonObject {
+            put("prompt", prompt)
+            put("surfaceId", surfaceId)
+        }
 
-                val request =
-                        Request.Builder()
-                                .url(wsUrl)
-                                .addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws")
-                                .build()
+        val request =
+                Request.Builder()
+                        .url(wsUrl)
+                        .addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws")
+                        .build()
 
-                val ws =
-                        wsClient.newWebSocket(
-                                request,
-                                object : WebSocketListener() {
-                                    override fun onOpen(webSocket: WebSocket, response: Response) {
-                                        // graphql-ws: send connection_init
+        // Track if server completed normally
+        var serverCompleted = false
+
+        val ws =
+                wsClient.newWebSocket(
+                        request,
+                        object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) {
+                                // graphql-ws: send connection_init
+                                webSocket.send("""{"type":"connection_init","payload":{}}""")
+                            }
+
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                val msg =
+                                        try {
+                                            jsonParser.parseToJsonElement(text).jsonObject
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Failed to parse WS message: $text")
+                                            return
+                                        }
+                                when (msg["type"]?.jsonPrimitive?.contentOrNull) {
+                                    "connection_ack" -> {
+                                        // Send the subscription request
+                                        val payload = buildJsonObject {
+                                            put("query", subscriptionQuery)
+                                            put("variables", variables)
+                                        }
                                         webSocket.send(
-                                                """{"type":"connection_init","payload":{}}"""
+                                                buildJsonObject {
+                                                            put("type", "subscribe")
+                                                            put("id", id)
+                                                            put("payload", payload)
+                                                        }
+                                                        .toString()
                                         )
                                     }
-
-                                    override fun onMessage(webSocket: WebSocket, text: String) {
-                                        val msg =
-                                                try {
-                                                    jsonParser.parseToJsonElement(text).jsonObject
-                                                } catch (e: Exception) {
-                                                    Log.w(TAG, "Failed to parse WS message: $text")
-                                                    return
-                                                }
-                                        when (msg["type"]?.jsonPrimitive?.contentOrNull) {
-                                            "connection_ack" -> {
-                                                // Send the subscription request
-                                                val payload = buildJsonObject {
-                                                    put("query", subscriptionQuery)
-                                                    put("variables", variables)
-                                                }
-                                                webSocket.send(
-                                                        buildJsonObject {
-                                                                    put("type", "subscribe")
-                                                                    put("id", id)
-                                                                    put("payload", payload)
-                                                                }
-                                                                .toString()
-                                                )
-                                            }
-                                            "next" -> {
-                                                val data =
-                                                        msg["payload"]?.jsonObject?.get("data")
-                                                                ?.jsonObject
-                                                val jsonlLine =
-                                                        data?.get("uiStream")
-                                                                ?.jsonPrimitive
-                                                                ?.contentOrNull
-                                                if (jsonlLine != null) {
-                                                    val event = parseJsonlLine(jsonlLine)
-                                                    if (event != null) trySend(event)
-                                                }
-                                            }
-                                            "error" -> {
-                                                val errors =
-                                                        msg["payload"]?.jsonArray?.toString()
-                                                                ?: "Unknown GraphQL error"
-                                                Log.e(TAG, "GraphQL subscription error: $errors")
-                                                trySend(StreamEvent.StreamError(errors))
-                                                close()
-                                            }
-                                            "complete" -> {
-                                                Log.d(TAG, "Subscription complete (id=$id)")
-                                                trySend(StreamEvent.StreamClosed)
-                                                close()
-                                            }
-                                            "ping" -> webSocket.send("""{"type":"pong"}""")
+                                    "next" -> {
+                                        val data =
+                                                msg["payload"]?.jsonObject?.get("data")?.jsonObject
+                                        val jsonlLine =
+                                                data?.get("uiStream")?.jsonPrimitive?.contentOrNull
+                                        if (jsonlLine != null) {
+                                            val event = parseJsonlLine(jsonlLine)
+                                            if (event != null) trySend(event)
                                         }
                                     }
-
-                                    override fun onFailure(
-                                            webSocket: WebSocket,
-                                            t: Throwable,
-                                            response: Response?
-                                    ) {
-                                        val msg =
-                                                t.message
-                                                        ?: response?.message ?: "WebSocket failure"
-                                        Log.e(TAG, "WebSocket failure: $msg", t)
-                                        trySend(StreamEvent.StreamError(msg, t))
-                                        close(t)
+                                    "error" -> {
+                                        val errors =
+                                                msg["payload"]?.jsonArray?.toString()
+                                                        ?: "Unknown GraphQL error"
+                                        Log.e(TAG, "GraphQL subscription error: $errors")
+                                        trySend(StreamEvent.StreamError(errors))
+                                        close()
                                     }
-
-                                    override fun onClosed(
-                                            webSocket: WebSocket,
-                                            code: Int,
-                                            reason: String
-                                    ) {
-                                        Log.d(TAG, "WebSocket closed: $code $reason")
+                                    "complete" -> {
+                                        Log.d(TAG, "Subscription complete (id=$id)")
+                                        serverCompleted = true
                                         trySend(StreamEvent.StreamClosed)
                                         close()
                                     }
+                                    "ping" -> webSocket.send("""{"type":"pong"}""")
                                 }
-                        )
+                            }
 
-                awaitClose {
-                    // Send stop message before closing
-                    ws.send(
-                            buildJsonObject {
-                                        put("type", "complete")
-                                        put("id", id)
-                                    }
-                                    .toString()
-                    )
-                    ws.cancel()
-                }
-            }
+                            override fun onFailure(
+                                    webSocket: WebSocket,
+                                    t: Throwable,
+                                    response: Response?
+                            ) {
+                                // If server already completed normally, this is just cleanup - not
+                                // an error
+                                if (serverCompleted) {
+                                    Log.d(TAG, "WebSocket closed after completion")
+                                    return
+                                }
+                                val msg = t.message ?: response?.message ?: "WebSocket failure"
+                                Log.e(TAG, "WebSocket failure: $msg", t)
+                                trySend(StreamEvent.StreamError(msg, t))
+                                close(t)
+                            }
+
+                            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                                Log.d(TAG, "WebSocket closed: $code $reason")
+                                serverCompleted = true
+                                trySend(StreamEvent.StreamClosed)
+                                close()
+                            }
+                        }
+                )
+
+        awaitClose {
+            // Send stop message before closing
+            ws.send(
+                    buildJsonObject {
+                                put("type", "complete")
+                                put("id", id)
+                            }
+                            .toString()
+            )
+            ws.cancel()
+        }
+    }
 
     // ── Raw subscription (emits JSON strings for Remote Compose rendering) ───
 
@@ -218,6 +216,9 @@ class BankingGraphQlClient(private val baseUrl: String) {
                         .url(wsUrl)
                         .addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws")
                         .build()
+
+        // Track if server already sent complete - don't try to send back
+        var serverCompleted = false
 
         val ws =
                 wsClient.newWebSocket(
@@ -262,10 +263,12 @@ class BankingGraphQlClient(private val baseUrl: String) {
                                                 msg["payload"]?.jsonArray?.toString()
                                                         ?: "Unknown GraphQL error"
                                         Log.e(TAG, "GraphQL subscription error: $errors")
+                                        serverCompleted = true
                                         close(Exception(errors))
                                     }
                                     "complete" -> {
                                         Log.d(TAG, "Subscription complete (id=$id)")
+                                        serverCompleted = true
                                         close()
                                     }
                                     "ping" -> webSocket.send("""{"type":"pong"}""")
@@ -277,26 +280,41 @@ class BankingGraphQlClient(private val baseUrl: String) {
                                     t: Throwable,
                                     response: Response?
                             ) {
+                                // If server already completed normally, this is just cleanup - not
+                                // an error
+                                if (serverCompleted) {
+                                    Log.d(TAG, "WebSocket closed after completion")
+                                    return
+                                }
                                 val msg = t.message ?: response?.message ?: "WebSocket failure"
                                 Log.e(TAG, "WebSocket failure: $msg", t)
+                                serverCompleted = true
                                 close(t)
                             }
 
                             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                                 Log.d(TAG, "WebSocket closed: $code $reason")
+                                serverCompleted = true
                                 close()
                             }
                         }
                 )
 
         awaitClose {
-            ws.send(
-                    buildJsonObject {
-                                put("type", "complete")
-                                put("id", id)
-                            }
-                            .toString()
-            )
+            // Only send complete if server hasn't already closed
+            if (!serverCompleted) {
+                try {
+                    ws.send(
+                            buildJsonObject {
+                                        put("type", "complete")
+                                        put("id", id)
+                                    }
+                                    .toString()
+                    )
+                } catch (e: Exception) {
+                    Log.d(TAG, "Could not send complete message: ${e.message}")
+                }
+            }
             ws.cancel()
         }
     }
@@ -342,6 +360,27 @@ class BankingGraphQlClient(private val baseUrl: String) {
         }
 
         graphQlPost(mutation, variables)
+    }
+
+    /** Send a `resetConversation` mutation to clear conversation history on the BFF. */
+    suspend fun resetConversation(surfaceId: String = "main"): Boolean {
+        val mutation =
+                """
+            mutation ResetConversation(${"$"}surfaceId: String!) {
+              resetConversation(surfaceId: ${"$"}surfaceId) { status }
+            }
+        """.trimIndent()
+
+        val variables = buildJsonObject { put("surfaceId", surfaceId) }
+
+        val result = graphQlPost(mutation, variables)
+        return result?.get("data")
+                ?.jsonObject
+                ?.get("resetConversation")
+                ?.jsonObject
+                ?.get("status")
+                ?.jsonPrimitive
+                ?.contentOrNull == "ok"
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

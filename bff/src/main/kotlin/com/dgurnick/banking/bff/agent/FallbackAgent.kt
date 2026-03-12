@@ -1,5 +1,6 @@
 package com.dgurnick.banking.bff.agent
 
+import com.dgurnick.banking.bff.conversation.Conversation
 import com.dgurnick.banking.bff.usecase.UseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -12,9 +13,13 @@ import kotlinx.serialization.json.*
  */
 class FallbackAgent : UseCase {
 
-    override fun canHandle(prompt: String): Boolean = true
+    override fun canHandle(prompt: String, conversation: Conversation): Boolean = true
 
-    override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
+    override fun generate(
+            prompt: String,
+            surfaceId: String,
+            conversation: Conversation
+    ): Flow<String> = flow {
         val data = buildJsonObject {
             put("type", "fallback")
             put("message", "Sorry, I didn\u2019t understand that.")

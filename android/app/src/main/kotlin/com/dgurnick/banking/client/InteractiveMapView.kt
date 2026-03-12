@@ -1,9 +1,9 @@
 package com.dgurnick.banking.client
 
+import android.annotation.SuppressLint
 import android.preference.PreferenceManager
+import android.view.MotionEvent
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -54,7 +54,7 @@ fun InteractiveMapView(mapData: MapData, modifier: Modifier = Modifier) {
             }
   }
 
-  Column(modifier = modifier.fillMaxSize()) {
+  Column(modifier = modifier) {
     // Title with count of visible ATMs
     Text(
             text = "${mapData.title} (${visibleMarkers.size} visible)",
@@ -62,7 +62,8 @@ fun InteractiveMapView(mapData: MapData, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(16.dp)
     )
 
-    // Map
+    // Map - fixed height for scrollable containers
+    @SuppressLint("ClickableViewAccessibility")
     AndroidView(
             factory = { ctx ->
               MapView(ctx).apply {
@@ -73,6 +74,21 @@ fun InteractiveMapView(mapData: MapData, modifier: Modifier = Modifier) {
 
                 // Enable hardware acceleration for better tile rendering
                 setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+
+                // Request parent to not intercept touch events when touching the map
+                setOnTouchListener { v, event ->
+                  when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                      // Disable parent scroll interception
+                      v.parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                      // Re-enable parent scroll interception
+                      v.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                  }
+                  false // Let the map handle the event
+                }
 
                 // Set initial position and zoom
                 val userPoint = GeoPoint(mapData.userLat, mapData.userLon)
@@ -120,7 +136,7 @@ fun InteractiveMapView(mapData: MapData, modifier: Modifier = Modifier) {
                 post { boundingBox?.let { updateVisibleMarkers(it) } }
               }
             },
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().height(350.dp).padding(horizontal = 16.dp),
             update = { mapView ->
               // Refresh visible markers when map updates
               mapView.boundingBox?.let { updateVisibleMarkers(it) }
@@ -128,13 +144,7 @@ fun InteractiveMapView(mapData: MapData, modifier: Modifier = Modifier) {
     )
 
     // ATM list below map - shows only visible markers
-    Column(
-            modifier =
-                    Modifier.fillMaxWidth()
-                            .weight(0.4f)
-                            .padding(horizontal = 16.dp)
-                            .verticalScroll(rememberScrollState())
-    ) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
       if (visibleMarkers.isEmpty()) {
         Text(
                 text = "No ATMs visible in current view. Zoom out to see more.",

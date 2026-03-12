@@ -4,6 +4,17 @@ This repository demonstrates **Jetpack Remote Compose** — a server-driven UI a
 
 ---
 
+## Demo
+
+<video src="demo.mp4" width="360" controls autoplay loop muted></video>
+
+**Features demonstrated:**
+- **ATM Finder** — Interactive OpenStreetMap with pinch-to-zoom, pan gestures, and auto-filtering ATM list
+- **Account Balance** — Server-rendered Remote Compose document
+- **Offers** — Native expandable cards with tap-to-expand interactions
+
+---
+
 ## How It Compares to Traditional Server-Driven UI
 
 Most server-driven UI frameworks (A2UI, Airbnb Ghost Platform, etc.) stream a *description* of the UI — a component graph the client interprets:
@@ -23,6 +34,10 @@ BFF ──{ RC binary document }──► Android
 The server builds the *actual layout* using `RemoteComposeContext` (a pure JVM API from `androidx.compose.remote:remote-creation-core`). It serialises the result to a binary byte array, base64-encodes it, and sends it over the GraphQL subscription. The Android client only decodes the bytes and hands them to `RemoteComposePlayer`. No layout code lives on the device.
 
 **Key difference:** with Remote Compose, changing what the user sees — layout, typography, colours, content — is a server-side change only. The app needs no update.
+
+> **💡 The Power of Server-Driven UI**
+>
+> Adding an entirely new feature — like the `LoanOffersAgent` with its multi-step conversational flow — requires **only a BFF rebuild**. The Android app remains unchanged and immediately supports the new workflow. No app store submission, no user update prompt, no version fragmentation. This is the core value proposition of server-driven architecture.
 
 ---
 
@@ -126,28 +141,132 @@ banking-demo/
 
 ## GraphQL API
 
-### Subscription — RC document stream
+### Full Schema (SDL)
+
 ```graphql
-subscription {
-  rcStream(prompt: "What is my account balance?", surfaceId: "main")
+type Query {
+  agentCard: AgentCard!
+}
+
+type Mutation {
+  sendUserAction(input: UserActionInput!): EventResult!
+  reportError(input: ClientErrorInput!): EventResult!
+}
+
+type Subscription {
+  uiStream(prompt: String!, surfaceId: String! = "main"): String!
+}
+
+type AgentCard {
+  name: String!
+  description: String!
+  version: String!
+  supportedCatalogIds: [String!]!
+  acceptsInlineCatalogs: Boolean!
+}
+
+type EventResult {
+  status: String!
+  received: Boolean!
+}
+
+input UserActionInput {
+  name: String!
+  surfaceId: String!
+  sourceComponentId: String!
+  timestamp: String!
+  context: String!
+}
+
+input ClientErrorInput {
+  message: String!
+  componentId: String
+  details: String
 }
 ```
 
-Each `next` payload contains a single JSON object:
-```json
-{ "rc": "<base64-encoded Remote Compose binary document>" }
+### Subscription — `uiStream`
+
+The main interface for streaming UI updates to the client.
+
+```graphql
+subscription {
+  uiStream(prompt: "What is my account balance?", surfaceId: "main")
+}
 ```
 
-Example prompts:
+The subscription uses the **graphql-transport-ws** protocol over WebSocket at `ws://localhost:8080/subscriptions`.
 
-| Prompt | Agent |
-|--------|-------|
-| "Where is the nearest ATM?" / "closest cash machine" | `AtmFinderAgent` |
-| "What is my account balance?" / "show transactions" | `AccountBalanceAgent` |
-| "What offers do you have?" / "any loan deals?" | `BankOffersAgent` |
+#### Response Formats
+
+Each `next` payload is a JSON string with a `type` discriminator:
+
+| Type | Format | Description |
+|------|--------|-------------|
+| `rc` | `{"type": "rc", "rc": "<base64>"}` | Remote Compose binary document (base64-encoded) |
+| `map` | `{"type": "map", "mapData": {...}}` | Native map data for interactive maps |
+| `offers` | `{"type": "offers", "offersData": {...}}` | Native offers data for expandable cards |
+| `chat` | `{"type": "chat", "text": "...", "buttons": [...]}` | Conversational response with optional buttons |
+
+**Remote Compose Response:**
+```json
+{
+  "type": "rc",
+  "rc": "AQAAAAEAAAABAAAAAgAA..."
+}
+```
+
+**Map Response:**
+```json
+{
+  "type": "map",
+  "mapData": {
+    "centerLat": 40.7128,
+    "centerLng": -74.006,
+    "zoom": 15.0,
+    "markers": [
+      { "id": "atm-1", "lat": 40.7130, "lng": -74.007, "title": "Chase ATM" }
+    ]
+  }
+}
+```
+
+**Offers Response:**
+```json
+{
+  "type": "offers",
+  "offersData": {
+    "title": "We have these offers for you!",
+    "offers": [
+      { "id": "1", "title": "Cash Back Rewards", "description": "...", "actionText": "Learn More" }
+    ]
+  }
+}
+```
+
+**Chat Response:**
+```json
+{
+  "type": "chat",
+  "text": "How much would you like to borrow?",
+  "buttons": ["$1,000", "$5,000", "$10,000", "$25,000", "$50,000"]
+}
+```
+
+#### Agent Routing
+
+| Prompt Pattern | Agent |
+|----------------|-------|
+| "nearest ATM" / "closest cash machine" | `AtmFinderAgent` |
+| "account balance" / "show transactions" | `AccountBalanceAgent` |
+| "personal loan" / loan amount/purpose selections | `LoanOffersAgent` |
+| "offers" / "deals" / "promotions" | `BankOffersAgent` |
 | _(anything else)_ | `FallbackAgent` |
 
-### Query
+### Query — `agentCard`
+
+Returns metadata about the agent's capabilities (A2A protocol).
+
 ```graphql
 query {
   agentCard {
@@ -160,18 +279,55 @@ query {
 }
 ```
 
-### Mutations
-```graphql
-mutation {
-  sendUserAction(input: { name: "search", surfaceId: "main",
-    sourceComponentId: "searchBtn", timestamp: "...", context: "{}" }) {
-    status
+**Response:**
+```json
+{
+  "data": {
+    "agentCard": {
+      "name": "Banking BFF Agent",
+      "description": "Backend-for-frontend banking agent",
+      "version": "1.0.0",
+      "supportedCatalogIds": [],
+      "acceptsInlineCatalogs": false
+    }
   }
 }
+```
 
+### Mutations
+
+#### `sendUserAction`
+
+Reports user interactions (button taps, navigation) back to the BFF.
+
+```graphql
 mutation {
-  reportError(input: { message: "render failed", componentId: "card-1" }) {
+  sendUserAction(input: {
+    name: "button_tap",
+    surfaceId: "main",
+    sourceComponentId: "offer-card-1",
+    timestamp: "2024-01-15T10:30:00Z",
+    context: "{\"action\": \"apply_now\"}"
+  }) {
     status
+    received
+  }
+}
+```
+
+#### `reportError`
+
+Reports client-side errors for debugging and monitoring.
+
+```graphql
+mutation {
+  reportError(input: {
+    message: "Failed to decode RC document",
+    componentId: "rc-player-main",
+    details: "Base64 decode error at position 1024"
+  }) {
+    status
+    received
   }
 }
 ```
@@ -208,7 +364,7 @@ fun buildRcDocument(data: JsonObject): String {
         // lambda-with-receiver: this = RemoteComposeContext
         val titleStyle = addTextStyle(null, null, 22f, ...)
         box(RecordingModifier().fillMaxWidth(), 0, 0) {
-            drawTextAnchored("Good morning, Alex", 0f, 0f, 1080f, 56f, titleStyle)
+            drawTextAnchored("Good morning, Fadi", 0f, 0f, 1080f, 56f, titleStyle)
         }
     }
     return Base64.getEncoder().encodeToString(ctx.buffer())
@@ -321,3 +477,253 @@ The Android client:
 - Renders `mapData` with a native interactive `MapView`
 
 This preserves the server-driven philosophy while enabling full native interactivity where needed.
+
+---
+
+## Agent Architecture
+
+The BFF uses a simple **agent-based routing pattern**. Each agent implements the `UseCase` interface with two methods:
+- `canHandle(prompt, conversation)` — returns `true` if this agent should process the prompt
+- `generate(prompt, surfaceId, conversation)` — produces the response (RC document, JSON data, or chat message)
+
+Agents are evaluated in order; the first agent whose `canHandle()` returns `true` wins.
+
+### Current Agents
+
+| Agent | Purpose | Response Type | Triggers |
+|-------|---------|---------------|----------|
+| **AtmFinderAgent** | Locates nearby ATMs | Native map data | "nearest ATM", "cash machine", "withdraw" |
+| **AccountBalanceAgent** | Shows account balances | Remote Compose | "balance", "account", "statement" |
+| **LoanOffersAgent** | Multi-step loan application workflow | Chat with buttons | "personal loan", "borrow", loan amount/purpose selections |
+| **BankOffersAgent** | Displays promotional offers | Native offers data | "offers", "deals", "promotions" |
+| **SummaryAgent** | End-of-conversation summary | Chat with buttons | "no thanks", "goodbye", "start over" |
+| **FallbackAgent** | Catch-all for unrecognized prompts | Remote Compose | _(anything else)_ |
+
+### Agent Replacement Options
+
+Each agent represents a discrete capability that could be replaced by in-house solutions or external services:
+
+#### AtmFinderAgent
+| Replacement | Integration |
+|-------------|-------------|
+| **In-house** | Connect to your own ATM/branch locator database. Replace the mock data with real lat/lon queries against your location service. |
+| **Google Places API** | Use `nearbysearch` with `type=atm` to get real ATM locations near the user. |
+| **HERE Places API** | Enterprise-grade POI search with ATM category filtering. |
+| **Mastercard ATM Locator API** | Access to Mastercard's global ATM network. |
+
+#### AccountBalanceAgent
+| Replacement | Integration |
+|-------------|-------------|
+| **In-house Core Banking** | Call your core banking system's account inquiry API. Replace mock data with real balances from your CBS. |
+| **Plaid** | Aggregated account balances from linked external accounts. |
+| **MX** | Financial data aggregation platform for account information. |
+| **Yodlee** | Envestnet Yodlee for multi-institution account access. |
+
+#### LoanOffersAgent
+| Replacement | Integration |
+|-------------|-------------|
+| **In-house LOS** | Integrate with your Loan Origination System for real rates and eligibility. |
+| **Blend** | Digital lending platform API for loan applications. |
+| **Roostify** | Mortgage and consumer lending automation. |
+| **Upstart** | AI-powered lending platform for personal loans. |
+| **LLM Agent** | Replace keyword matching with an LLM (GPT-4, Claude, Gemini) for natural conversation and intent understanding. |
+
+#### BankOffersAgent
+| Replacement | Integration |
+|-------------|-------------|
+| **In-house Marketing** | Pull personalized offers from your CRM or marketing automation platform. |
+| **Cardlytics** | Purchase-based card-linked offers. |
+| **Finastra FusionFabric** | Marketplace offers and partner integrations. |
+| **Personetics** | AI-driven personalized financial insights and offers. |
+
+#### SummaryAgent
+| Replacement | Integration |
+|-------------|-------------|
+| **LLM Summarization** | Use an LLM to generate natural, context-aware conversation summaries instead of rule-based extraction. |
+| **In-house Analytics** | Log conversation events to your analytics platform and generate summaries from tracked actions. |
+
+#### FallbackAgent
+| Replacement | Integration |
+|-------------|-------------|
+| **LLM Router** | Use an LLM to classify intent and either answer directly or route to specialized agents. |
+| **Dialogflow CX** | Google's conversational AI for intent classification and response generation. |
+| **Amazon Lex** | AWS conversational AI service with built-in NLU. |
+| **Rasa** | Open-source conversational AI framework for on-premise deployment. |
+
+### Extending with New Agents
+
+To add a new agent:
+
+1. **Create the agent class** implementing `UseCase`:
+```kotlin
+class MyNewAgent : UseCase {
+    override fun canHandle(prompt: String, conversation: Conversation): Boolean {
+        // Return true if this agent should handle the prompt
+        return prompt.lowercase().contains("my keyword")
+    }
+
+    override fun generate(
+        prompt: String,
+        surfaceId: String,
+        conversation: Conversation
+    ): Flow<String> = flow {
+        // Return RC document, structured JSON, or chat response
+        emit(buildJsonObject {
+            put("type", "chat")
+            put("text", "Response text")
+        }.toString())
+    }
+}
+```
+
+2. **Register in Application.kt**:
+```kotlin
+val useCases: List<UseCase> = listOf(
+    // ... existing agents ...
+    MyNewAgent(),  // Add before FallbackAgent
+    FallbackAgent(), // catch-all — must be last
+)
+```
+
+3. **Rebuild the BFF** — the Android app requires no changes.
+
+### Production Considerations
+
+The current keyword-based `canHandle()` routing is suitable for demos but fragile for production:
+
+| Challenge | Production Solution |
+|-----------|-------------------|
+| **Intent ambiguity** | Use an LLM or NLU model (Dialogflow, Rasa, etc.) for robust intent classification |
+| **Multi-turn context** | The `Conversation` object tracks history; consider vector embeddings for semantic context |
+| **Agent conflicts** | Implement confidence scoring to handle overlapping triggers |
+| **Scalability** | Consider agent microservices for independent scaling and deployment |
+| **Monitoring** | Add tracing (OpenTelemetry) to track agent selection and performance |
+
+---
+
+## Technical Spike Summary
+
+This repository represents a **proof-of-concept technical spike** exploring server-driven UI with Remote Compose. The following summarizes the custom logic implemented in each layer.
+
+### Android App — Custom Logic
+
+The Android app is intentionally thin. Its job is to receive server responses and render them. Custom logic is limited to:
+
+| Component | Custom Logic | Lines of Code |
+|-----------|--------------|---------------|
+| **BankingGraphQlClient** | GraphQL WebSocket subscription management, connection_init/ack handshake, raw JSON streaming | ~120 |
+| **BankingViewModel** | Response type parsing (`chat`, `map`, `offers`, `action`, `rc`), message list state management, offer selection tracking | ~200 |
+| **BankingApp** | Chat UI layout (LazyColumn of messages), button click handlers, "Start over" client-side reset, location permission integration | ~250 |
+| **InteractiveMapView** | Native OpenStreetMap rendering with zoom/pan, marker clustering, auto-scroll list on marker tap | ~180 |
+| **ExpandableOffersView** | Native expandable cards with AnimatedVisibility, offer selection state (hides non-selected, disables button) | ~150 |
+| **RcDocumentView** | AndroidView wrapper for RemoteComposePlayer, bytes → rendered layout | ~40 |
+| **InteractiveModels** | Data classes for ChatMessage (BotMessage, UserMessage, ContentMessage, LoadingMessage), MapData, OffersData, Offer | ~100 |
+
+**Total Android custom logic: ~1,040 lines**
+
+#### Key Android Implementation Details
+
+1. **Message Type Handling**: The ViewModel parses JSON response types and routes to appropriate rendering:
+   - `chat` → BotMessageBubble with optional buttons
+   - `map` → Native InteractiveMapView with OpenStreetMap
+   - `offers` → Native ExpandableOffersView cards
+   - `rc` → RemoteComposePlayer for server-rendered layouts
+   - `action` → Client-side actions (e.g., `reset_conversation`)
+
+2. **Stateful Interactions**: 
+   - Buttons are hidden after use (`buttonsUsed` flag)
+   - Offers collapse to show only selected offer (`selectedOfferId` tracking)
+   - "Start over" triggers client-side reset without server round-trip
+
+3. **Location Integration**: User location is captured via FusedLocationProviderClient and appended to ATM-finder prompts.
+
+---
+
+### BFF Server — Custom Logic
+
+The BFF contains the bulk of the application logic. It owns routing, conversation state, and UI construction.
+
+| Component | Custom Logic | Lines of Code |
+|-----------|--------------|---------------|
+| **Application.kt** | Ktor app setup, GraphQL plugin configuration, agent registration order | ~60 |
+| **BankingSchema.kt** | GraphQL schema (Query, Mutation, Subscription), agent card metadata, conversation management | ~150 |
+| **ConversationManager** | In-memory conversation history per surfaceId, message append/clear operations | ~50 |
+| **RcDocumentBuilder** | Remote Compose document creation using RemoteComposeContext, layout builders for balance/map/offers/fallback | ~250 |
+| **AtmFinderAgent** | Mock ATM data, location parsing from prompt, JSON map response construction | ~100 |
+| **AccountBalanceAgent** | Mock account data, RcDocumentBuilder invocation for balance display | ~80 |
+| **LoanOffersAgent** | **Multi-step state machine** (INITIAL → WAITING_AMOUNT → WAITING_PURPOSE → OFFER_SHOWN), loan offer calculation, goodbye phrase exclusion | ~220 |
+| **BankOffersAgent** | Mock offers data, JSON offers response with CTA actions | ~130 |
+| **SummaryAgent** | Goodbye detection, conversation summary generation, "Start over" action response | ~130 |
+| **FallbackAgent** | Generic "I don't understand" response with suggested prompts | ~50 |
+
+**Total BFF custom logic: ~1,220 lines**
+
+#### Key BFF Implementation Details
+
+1. **Agent Routing**: First-match-wins pattern with ordered agent list. Each agent's `canHandle()` uses keyword matching (production would use NLU/LLM).
+
+2. **Conversation State**: `ConversationManager` maintains per-surface conversation history. `LoanOffersAgent` uses conversation context to track its state machine step.
+
+3. **Response Types**: Agents emit different response formats:
+   - Remote Compose (base64 binary) for styled layouts
+   - Structured JSON (`mapData`, `offersData`) for native interactive components
+   - Chat messages with buttons for conversational flows
+   - Actions for client-side commands (`reset_conversation`)
+
+4. **State Machine Example** (LoanOffersAgent):
+   ```
+   INITIAL ──► user says "personal loan" ──► WAITING_AMOUNT
+   WAITING_AMOUNT ──► user selects "$5,000" ──► WAITING_PURPOSE  
+   WAITING_PURPOSE ──► user selects "Debt Consolidation" ──► OFFER_SHOWN
+   OFFER_SHOWN ──► user says "Yes, start my application" ──► Application submitted
+   OFFER_SHOWN ──► user says "No, that's all" ──► SummaryAgent takes over
+   ```
+
+---
+
+### What This Spike Demonstrates
+
+| Capability | Evidence |
+|------------|----------|
+| **Server-driven UI** | Layout changes (typography, spacing, content) require only BFF rebuild — no app update |
+| **Hybrid native + RC rendering** | Interactive maps and expandable cards rendered natively; styled content via RC |
+| **Multi-turn conversations** | LoanOffersAgent maintains state across multiple user inputs |
+| **Agent extensibility** | Adding SummaryAgent required zero Android changes |
+| **Response polymorphism** | Single subscription handles chat, maps, offers, RC, and actions |
+| **Client-side state management** | Buttons disable after use, offers collapse to selection |
+
+---
+
+### Effort Breakdown
+
+| Phase | Effort | Notes |
+|-------|--------|-------|
+| **Initial scaffolding** | 2 days | Ktor BFF, GraphQL schema, Android app shell, RC player integration |
+| **ATM Finder with native map** | 1 day | OpenStreetMap integration, marker rendering, auto-scroll list |
+| **Account Balance (RC)** | 0.5 days | RcDocumentBuilder, styled text layout |
+| **Offers with expandable cards** | 1 day | Native Compose cards, expand/collapse animation, CTA handling |
+| **LoanOffersAgent state machine** | 1 day | Multi-step conversation flow, state tracking, offer calculation |
+| **SummaryAgent** | 0.5 days | Goodbye detection, conversation summary, reset functionality |
+| **Offer selection UX** | 0.5 days | Hide non-selected offers, disable button, checkmark prefix |
+| **Testing & polish** | 1 day | Bruno tests, error handling, demo video capture |
+
+**Total estimated effort: ~7.5 days**
+
+---
+
+### Production Gaps
+
+This spike is suitable for demonstrating the architecture but requires additional work for production:
+
+| Gap | Production Requirement |
+|-----|----------------------|
+| **Authentication** | Add OAuth2/OIDC for user authentication; scope conversations to authenticated users |
+| **Real data sources** | Replace mock data with calls to core banking, location services, loan origination systems |
+| **Intent classification** | Replace keyword matching with NLU model or LLM for robust intent understanding |
+| **Persistence** | Store conversation history in a database (Redis, PostgreSQL) instead of in-memory |
+| **Rate limiting** | Add API rate limiting and throttling |
+| **Observability** | OpenTelemetry tracing, structured logging, metrics dashboards |
+| **Error handling** | Comprehensive error responses, retry logic, circuit breakers |
+| **Security** | Input validation, prompt injection prevention, audit logging |
+| **Scalability** | Horizontal scaling, load balancing, agent microservices |
+| **Testing** | Unit tests, integration tests, contract tests, load tests |

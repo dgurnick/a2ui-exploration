@@ -1,5 +1,6 @@
 package com.dgurnick.banking.bff.agent
 
+import com.dgurnick.banking.bff.conversation.Conversation
 import com.dgurnick.banking.bff.usecase.UseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -13,17 +14,53 @@ import kotlinx.serialization.json.*
  */
 class BankOffersAgent : UseCase {
 
-    override fun canHandle(prompt: String): Boolean {
+    override fun canHandle(prompt: String, conversation: Conversation): Boolean {
         val p = prompt.lowercase()
+        // Don't handle if we're in a loan conversation flow
+        if (isInLoanConversation(conversation)) {
+            return false
+        }
+        // Don't handle loan-specific queries - let LoanOffersAgent handle those
+        if (p.contains("personal loan") ||
+                        p.contains("learn more") && p.contains("loan") ||
+                        p.contains("i need") && (p.contains("$") || p.contains("borrow")) ||
+                        p.contains("$1,000") ||
+                        p.contains("$5,000") ||
+                        p.contains("$10,000") ||
+                        p.contains("$25,000") ||
+                        p.contains("$50,000") ||
+                        p.contains("debt consolidation") ||
+                        p.contains("home improvement") ||
+                        p.contains("major purchase") ||
+                        p.contains("emergency expenses") ||
+                        p.contains("other purpose") ||
+                        p.contains("start my application") ||
+                        p.contains("see other loan") ||
+                        p.contains("maybe later")
+        ) {
+            return false
+        }
         return p.contains("offer") ||
                 p.contains("deal") ||
                 p.contains("promotion") ||
                 p.contains("promo") ||
-                p.contains("rate") ||
-                p.contains("loan")
+                p.contains("rate")
     }
 
-    override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
+    private fun isInLoanConversation(conversation: Conversation): Boolean {
+        // Check if recent messages indicate we're in a loan workflow
+        return conversation.messages.any { msg ->
+            msg.role == "assistant" &&
+                    (msg.content.contains("How much are you looking to borrow") ||
+                            msg.content.contains("What will you be using this loan for"))
+        }
+    }
+
+    override fun generate(
+            prompt: String,
+            surfaceId: String,
+            conversation: Conversation
+    ): Flow<String> = flow {
         val response = buildJsonObject {
             put("type", "offers")
             putJsonObject("offersData") {
@@ -82,8 +119,8 @@ class BankOffersAgent : UseCase {
                                 "details",
                                 "• Borrow \$1,000 to \$50,000\n• Fixed rates from 8.99% APR\n• No collateral required\n• Same-day approval possible\n• No prepayment penalties"
                         )
-                        put("ctaText", "Apply Now")
-                        put("ctaUrl", "https://example.com/apply/personal")
+                        put("ctaText", "Get Started")
+                        put("ctaAction", "I'm interested in a Personal Loan")
                     }
                 }
             }

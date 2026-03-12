@@ -39,6 +39,7 @@ bff/bruno/environments/local-secret.bru
 # ── Logs ───────────────────────────────────────────────────────────────────────
 *.log
 logs/
+bff/conversation-logs/
 
 # ── Node (tooling) ─────────────────────────────────────────────────────────────
 node_modules/

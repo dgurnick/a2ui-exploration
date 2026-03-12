@@ -1,12 +1,14 @@
 package com.dgurnick.banking.bff.graphql
 
+import com.dgurnick.banking.bff.conversation.ConversationManager
+import com.dgurnick.banking.bff.usecase.UseCase
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Mutation
 import com.expediagroup.graphql.server.operations.Query
 import com.expediagroup.graphql.server.operations.Subscription
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import com.dgurnick.banking.bff.usecase.UseCase
+import kotlinx.coroutines.flow.onEach
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("banking.graphql")
@@ -17,18 +19,15 @@ private val log = LoggerFactory.getLogger("banking.graphql")
 
 @GraphQLDescription("Banking agent capabilities (A2A agent card)")
 data class AgentCard(
-    val name: String,
-    val description: String,
-    val version: String,
-    val supportedCatalogIds: List<String>,
-    val acceptsInlineCatalogs: Boolean
+        val name: String,
+        val description: String,
+        val version: String,
+        val supportedCatalogIds: List<String>,
+        val acceptsInlineCatalogs: Boolean
 )
 
 @GraphQLDescription("Result of submitting a client event")
-data class EventResult(
-    val status: String,
-    val received: String? = null
-)
+data class EventResult(val status: String, val received: String? = null)
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Input types
@@ -36,19 +35,19 @@ data class EventResult(
 
 @GraphQLDescription("A user-initiated action from a rendered banking component")
 data class UserActionInput(
-    val name: String,
-    val surfaceId: String,
-    val sourceComponentId: String,
-    val timestamp: String,
-    /** Serialised JSON object of resolved context key-value pairs */
-    val context: String = "{}"
+        val name: String,
+        val surfaceId: String,
+        val sourceComponentId: String,
+        val timestamp: String,
+        /** Serialised JSON object of resolved context key-value pairs */
+        val context: String = "{}"
 )
 
 @GraphQLDescription("A client-side rendering or binding error")
 data class ClientErrorInput(
-    val message: String,
-    val componentId: String? = null,
-    val details: String? = null
+        val message: String,
+        val componentId: String? = null,
+        val details: String? = null
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -57,15 +56,18 @@ data class ClientErrorInput(
 
 class BankingQuery : Query {
     @GraphQLDescription("Returns the agent capabilities (A2A agent card)")
-    fun agentCard(): AgentCard = AgentCard(
-        name = "Banking Demo Assistant",
-        description = "Banking assistant — ATM finder, account balances, and personalised offers",
-        version = "0.8",
-        supportedCatalogIds = listOf(
-            "https://a2ui.org/specification/v0_8/standard_catalog_definition.json"
-        ),
-        acceptsInlineCatalogs = false
-    )
+    fun agentCard(): AgentCard =
+            AgentCard(
+                    name = "Banking Demo Assistant",
+                    description =
+                            "Banking assistant — ATM finder, account balances, and personalised offers",
+                    version = "0.8",
+                    supportedCatalogIds =
+                            listOf(
+                                    "https://a2ui.org/specification/v0_8/standard_catalog_definition.json"
+                            ),
+                    acceptsInlineCatalogs = false
+            )
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -75,7 +77,9 @@ class BankingQuery : Query {
 class BankingMutation : Mutation {
     @GraphQLDescription("Submit a user action event from a rendered banking surface")
     fun sendUserAction(input: UserActionInput): EventResult {
-        log.info("userAction: name=${input.name} surface=${input.surfaceId} component=${input.sourceComponentId}")
+        log.info(
+                "userAction: name=${input.name} surface=${input.surfaceId} component=${input.sourceComponentId}"
+        )
         // In a production system this would route the event back to the active agent session.
         return EventResult(status = "ok", received = input.name)
     }
@@ -85,6 +89,15 @@ class BankingMutation : Mutation {
         log.warn("client error: ${input.message} (component=${input.componentId})")
         return EventResult(status = "logged")
     }
+
+    @GraphQLDescription("Reset the conversation history for a given surface")
+    fun resetConversation(
+            @GraphQLDescription("Target surface identifier to reset") surfaceId: String = "main"
+    ): EventResult {
+        log.info("Resetting conversation for surfaceId=$surfaceId")
+        ConversationManager.clearConversation(surfaceId)
+        return EventResult(status = "ok", received = "conversation_reset")
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -93,18 +106,29 @@ class BankingMutation : Mutation {
 
 class BankingSubscription(private val useCases: List<UseCase>) : Subscription {
     @GraphQLDescription(
-        "Subscribe to an Remote Compose document stream for the given prompt. " +
-        "Each emission is one JSONL line conforming to the Remote Compose binary document stream."
+            "Subscribe to an Remote Compose document stream for the given prompt. " +
+                    "Each emission is one JSONL line conforming to the Remote Compose binary document stream."
     )
     fun uiStream(
-        @GraphQLDescription("Natural-language prompt sent to the agent")
-        prompt: String,
-        @GraphQLDescription("Target surface identifier (default: \"main\")")
-        surfaceId: String = "main"
+            @GraphQLDescription("Natural-language prompt sent to the agent") prompt: String,
+            @GraphQLDescription("Target surface identifier (default: \"main\")")
+            surfaceId: String = "main"
     ): Flow<String> {
         log.info("uiStream subscription: prompt='$prompt' surfaceId='$surfaceId'")
-        return useCases.firstOrNull { it.canHandle(prompt) }
-            ?.generate(prompt, surfaceId)
-            ?: emptyFlow()
+
+        // Get or create conversation for this surfaceId
+        val conversation = ConversationManager.getConversation(surfaceId)
+
+        // Record the user's message
+        conversation.addUserMessage(prompt)
+        log.info("Conversation history for '$surfaceId': ${conversation.messages.size} messages")
+
+        val matchingUseCase = useCases.firstOrNull { it.canHandle(prompt, conversation) }
+
+        return matchingUseCase?.generate(prompt, surfaceId, conversation)?.onEach { response ->
+            // Record the assistant's response
+            conversation.addAssistantMessage(response)
+        }
+                ?: emptyFlow()
     }
 }

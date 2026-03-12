@@ -1,5 +1,6 @@
 package com.dgurnick.banking.bff.agent
 
+import com.dgurnick.banking.bff.conversation.Conversation
 import com.dgurnick.banking.bff.usecase.UseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -13,7 +14,7 @@ import kotlinx.serialization.json.*
  */
 class AtmFinderAgent : UseCase {
 
-    override fun canHandle(prompt: String): Boolean {
+    override fun canHandle(prompt: String, conversation: Conversation): Boolean {
         val p = prompt.lowercase()
         return p.contains("atm") ||
                 p.contains("cash machine") ||
@@ -22,7 +23,11 @@ class AtmFinderAgent : UseCase {
                 p.contains("withdraw")
     }
 
-    override fun generate(prompt: String, surfaceId: String): Flow<String> = flow {
+    override fun generate(
+            prompt: String,
+            surfaceId: String,
+            conversation: Conversation
+    ): Flow<String> = flow {
         val (userLat, userLon) = parseLocation(prompt) ?: Pair(37.7860, -122.4071)
 
         // Send structured map data for native interactive map

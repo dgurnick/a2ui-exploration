@@ -7,8 +7,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -25,8 +23,23 @@ import androidx.compose.ui.unit.dp
  * interactions - this is native Compose.
  */
 @Composable
-fun ExpandableOffersView(offersData: OffersData, modifier: Modifier = Modifier) {
-  Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+fun ExpandableOffersView(
+        offersData: OffersData,
+        messageId: String,
+        selectedOfferId: String? = null,
+        modifier: Modifier = Modifier,
+        onAction: (String, String, String) -> Unit = { _, _, _ -> } // (messageId, offerId, action)
+) {
+  // Filter to only selected offer if one is selected
+  val offersToShow =
+          if (selectedOfferId != null) {
+            offersData.offers.filter { it.id == selectedOfferId }
+          } else {
+            offersData.offers
+          }
+
+  // Note: no verticalScroll here - parent BankingApp handles scrolling
+  Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
     // Title
     Text(
             text = offersData.title,
@@ -35,16 +48,26 @@ fun ExpandableOffersView(offersData: OffersData, modifier: Modifier = Modifier) 
     )
 
     // Offer cards
-    offersData.offers.forEach { offer ->
-      ExpandableOfferCard(offer = offer)
+    offersToShow.forEach { offer ->
+      ExpandableOfferCard(
+              offer = offer,
+              messageId = messageId,
+              isSelected = offer.id == selectedOfferId,
+              onAction = onAction
+      )
       Spacer(modifier = Modifier.height(12.dp))
     }
   }
 }
 
 @Composable
-private fun ExpandableOfferCard(offer: Offer) {
-  var expanded by remember { mutableStateOf(false) }
+private fun ExpandableOfferCard(
+        offer: Offer,
+        messageId: String,
+        isSelected: Boolean,
+        onAction: (String, String, String) -> Unit // (messageId, offerId, action)
+) {
+  var expanded by remember { mutableStateOf(isSelected) } // Auto-expand selected offers
   val context = LocalContext.current
 
   Card(
@@ -134,14 +157,19 @@ private fun ExpandableOfferCard(offer: Offer) {
 
           Spacer(modifier = Modifier.height(16.dp))
 
-          // CTA button
+          // CTA button - disabled once selected
           Button(
                   onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(offer.ctaUrl))
-                    context.startActivity(intent)
+                    if (offer.ctaAction != null) {
+                      onAction(messageId, offer.id, offer.ctaAction)
+                    } else {
+                      val intent = Intent(Intent.ACTION_VIEW, Uri.parse(offer.ctaUrl))
+                      context.startActivity(intent)
+                    }
                   },
-                  modifier = Modifier.fillMaxWidth()
-          ) { Text(offer.ctaText) }
+                  modifier = Modifier.fillMaxWidth(),
+                  enabled = !isSelected
+          ) { Text(if (isSelected) "✓ ${offer.ctaText}" else offer.ctaText) }
         }
       }
     }
